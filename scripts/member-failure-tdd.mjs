@@ -127,8 +127,16 @@ async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = f
   let retryState = {}
   const retryDisposers = []
   installRetry({
+    // 0.2.2 llm-retry reads `ctx.fiber.uid` to detect a disposed fiber; the
+    // minimal fixture ctx must expose the same shape the real Cordis fiber has.
+    fiber: { uid: 'member-failure-fixture' },
     logger: ctx.logger,
-    sessionProjections: { register(value) { projection = value }, stateOf() { return retryState } },
+    // 0.2.2 llm-retry awaits `register(def)` for a projection handle and then
+    // reads `handle.stateOf(session)` for per-session retry state.
+    sessionProjections: {
+      register(value) { projection = value; return { stateOf() { return retryState } } },
+      stateOf() { return retryState },
+    },
     on(_name, listener) { retryHandler = listener; return () => {} },
     effect(setup) { retryDisposers.push(setup()) },
   })

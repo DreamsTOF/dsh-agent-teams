@@ -50,6 +50,12 @@ function child({ workspace = process.cwd(), effort, inherited = false } = {}) {
   } }
   const agent = {
     id: 'member-id', status: 'idle', whenIdle: async () => {},
+    // Harness 0.2.2 owns the request-time route on the Agent's durable model
+    // API; the plugin applies a member's saved route with `model.select()`.
+    model: { current: undefined, select(selection) { this.current = selection } },
+    // Modern fallback recovery restarts the member in a new turn.
+    cancel() { this.cancellations = (this.cancellations ?? 0) + 1 },
+    followup() { this.followups = (this.followups ?? 0) + 1 },
     options: { provider: 'primary', model: 'model', reasoningEffort: effort },
     session: { header: { cwd: workspace, parentSession: 'captain' }, ownEvents: () => inherited ? [] : [descriptor] },
   }
@@ -65,6 +71,17 @@ async function selection(agent) {
 }
 
 async function requestSelection(agent) {
+  // Harness 0.2.2: the effective route is whatever the Agent model API was
+  // told to select (the plugin calls `agent.model.select(...)`); older hosts
+  // instead contributed an `agent/request` waterfall listener.
+  const applied = agent.model?.current
+  if (applied !== undefined) {
+    return {
+      provider: applied.provider,
+      model: applied.model,
+      ...applied.reasoningEffort === undefined ? {} : { reasoningEffort: String(applied.reasoningEffort) },
+    }
+  }
   let config = { provider: 'inherited', model: 'parent-model', reasoningEffort: 'low' }
   for (const request of agent.ctx.listeners.get('agent/request') ?? []) {
     const previous = config
@@ -76,6 +93,10 @@ async function requestSelection(agent) {
 await test('native SubagentRuntime keeps its receiver through FIFO delivery and retirement guard', async t => {
   const host = new Context()
   host.provide('workingDirectory', {})
+  // 0.2.2 SubagentRuntime injects `sessionProjections` and registers its three
+  // catalog/timing/identity projections during init; supply a minimal sink so
+  // the real service can mount in this focused fixture.
+  host.provide('sessionProjections', { async register() {}, snapshot() { return { values: {} } } })
   const fiber = host.plugin(SubagentRuntime)
   t.after(() => fiber.dispose())
   await fiber.await()
@@ -186,15 +207,19 @@ await test('synchronous modern setup selects the first request, deduplicates eve
   await bridge.withPending('captain', 'agent-teams:team:worker', {
     provider: 'selected', model: 'selected-model', reasoningEffort: 'high',
   }, async () => {
+    const selectedRoute = { provider: 'selected', model: 'selected-model', reasoningEffort: 'high' }
     ctx.emit('agent/session-start', { agent, source: 'startup' })
-    assert.equal(agent.ctx.listeners.get('agent/request').size, 1)
+    // 0.2.2 applies the pending route through the Agent model API before the
+    // first request; a second lifecycle edge must not re-run setup or leak hooks.
+    assert.deepEqual(await selection(agent), selectedRoute)
+    const preStepAfterStart = agent.ctx.listeners.get('agent/pre-step')?.size ?? 0
     ctx.emit('agent/session-start', { agent, source: 'compact' })
-    assert.equal(agent.ctx.listeners.get('agent/request').size, 1)
-    assert.deepEqual(await selection(agent), { provider: 'selected', model: 'selected-model', reasoningEffort: 'high' })
+    assert.equal(agent.ctx.listeners.get('agent/pre-step')?.size ?? 0, preStepAfterStart, 'duplicate session-start must not leak handlers')
+    assert.deepEqual(await selection(agent), selectedRoute, 'the pending route stays applied without re-selection')
   })
   ctx.dispose()
-  assert.equal(agent.ctx.listeners.get('agent/request').size, 0)
-  assert.equal(agent.ctx.listeners.get('agent/error').size, 0)
+  assert.equal(agent.ctx.listeners.get('agent/pre-step')?.size ?? 0, 0)
+  assert.equal(agent.ctx.listeners.get('agent/error')?.size ?? 0, 0)
   agent.ctx.dispose()
 })
 
@@ -223,7 +248,7 @@ await test('setup exception blocks request instead of being swallowed by session
   ctx.emit('agent/session-start', { agent })
   await assert.rejects(selection(agent), /member initialization failed.*damaged durable model route/)
   ctx.dispose()
-  assert.equal(agent.ctx.listeners.get('agent/request').size, 0)
+  assert.equal(agent.ctx.listeners.get('agent/request')?.size ?? 0, 0)
 })
 
 await test('a child inheriting another member descriptor does not acquire member selection or failure hooks', () => {
@@ -269,9 +294,12 @@ for (const fallbackActive of [false, true]) {
       assert.equal(delegated, 1)
     } else {
       const handler = [...agent.ctx.listeners.get('agent/request-error')][0]
-      assert.deepEqual(await handler({ agent, signal, failure: { code: 'AUTH' } }, async () => undefined), { kind: 'retry' })
-      // Harness retries inside the SAME step, without assembling the prompt
-      // again. The accepted fallback must replace the captured request route.
+      // 0.2.2 native model API: the plugin selects the fallback route and
+      // restarts the member in a new turn (cancel + followup) instead of
+      // returning `{kind:'retry'}` to the host waterfall.
+      assert.equal(await handler({ agent, signal, failure: { code: 'AUTH' } }, async () => undefined), undefined)
+      assert.equal(agent.cancellations, 1, 'modern recovery cancels the failed step')
+      assert.equal(agent.followups, 1, 'modern recovery wakes the member for a new turn')
       assert.deepEqual(await requestSelection(agent), { provider: 'backup', model: 'backup-model' })
     }
   })

@@ -56,8 +56,18 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
   const host = new Context()
   const prompt = host.plugin(SystemPrompt, { includeHarnessIdentity: false })
   await prompt.await()
-  const tools = host.plugin(ToolRuntime, { mode: 'native' })
+  // Harness 0.2.2 removed the presentation `mode` config from ToolRuntime
+  // (only the internal "plain" default remains); an executor plugin now owns
+  // dispatch, and a scope selects its presentation by mounting one.
+  const tools = host.plugin(ToolRuntime)
   await tools.await()
+  const nativeExecutor = await import(pathToFileURL(requireTools.resolve('@deepseek-ai/dsh-tool-executor-native')).href)
+  let executorFiber
+  const mountNativeExecutor = async () => {
+    executorFiber = host.plugin(nativeExecutor.default ?? nativeExecutor, {})
+    await executorFiber.await()
+  }
+  await mountNativeExecutor()
   const worker = await mountCodeRuntime(host, workspace)
   const agents = []
   const scopes = []
@@ -98,7 +108,20 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
   await fiber.await()
   const assemble = agent => host.systemPrompt.assemble({ agent, scope: agent })
   const names = async agent => (await assemble(agent)).tools.map(tool => tool.name)
-  const execute = (agent, name, args = {}, signal = new AbortController().signal) => host.tools.execute({ name, arguments: args, callId: name + '-test', agent, signal })
+  // Harness 0.2.2 replaced the single-call `tools.execute({name,arguments…})`
+  // API with a batch executor input (`{calls:[ToolCallBlock],agent,signal}`);
+  // adapt the fixture while keeping the single-result assertions.
+  const runTool = async (agent, name, args = {}, callId = name + '-test', signal = new AbortController().signal) => {
+    const batch = await host.tools.execute({
+      calls: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args ?? {}) }],
+      agent,
+      signal,
+    })
+    const settled = batch.results.find(result => result.callId === callId) ?? batch.results[0]
+    if (settled === undefined) throw new Error(`tool batch returned no result for ${name}`)
+    return settled.result
+  }
+  const execute = (agent, name, args = {}, signal = new AbortController().signal) => runTool(agent, name, args, name + '-test', signal)
   const captainNames = [...TEAM_TOOL_NAMES].sort()
   const header = async agent => { const assembled = await assemble(agent); return JSON.stringify({ system: renderPrompt(assembled), tools: assembled.tools }) }
   const initialHeader = await header(a)
@@ -107,7 +130,7 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
     await t.test('first request keeps all tools and the complete fixed captain protocol', async () => {
       assert.deepEqual(await names(a), captainNames)
       assertCaptainProtocol(renderPrompt(await assemble(a)))
-      assert.equal((await names(a)).length, 14)
+      assert.equal((await names(a)).length, TEAM_TOOL_NAMES.length)
       assert.equal(host.tools.get('agent_teams_open', a), undefined)
       assert.doesNotMatch(renderPrompt(await assemble(a)), /agent_teams_open/)
       t.diagnostic(JSON.stringify({ role: 'captain-idle', profiles: ['demo'], promptBytes: Buffer.byteLength(renderPrompt(await assemble(a))), schemaBytes: Buffer.byteLength(JSON.stringify((await assemble(a)).tools)) }))
@@ -142,7 +165,7 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
         assert.equal(host.tools.get('agent_teams_open', legacy), undefined)
         assertCaptainProtocol(renderPrompt(await assemble(legacy)))
         for (const name of ['agent_teams_create', 'agent_teams_delete']) {
-          const result = await host.tools.execute({ name, arguments: name === 'agent_teams_create' ? { name: 'Legacy', approval: 'required' } : {}, callId: name + '-legacy', agent: legacy, signal: new AbortController().signal })
+          const result = await runTool(legacy, name, name === 'agent_teams_create' ? { name: 'Legacy', approval: 'required' } : {}, name + '-legacy', new AbortController().signal)
           assert.equal(result.isError, false, JSON.stringify(result))
         }
         assertCaptainProtocol(renderPrompt(await assemble(legacy)))
@@ -198,41 +221,60 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
       host.emit('agent/session-start', { agent: child, source: 'resume' })
       assert.deepEqual((await names(child)).sort(), [...MEMBER_TOOL_NAMES].sort())
     })
-    await t.test('supported PTC presentation modes keep the operation SDK stable after status', async () => {
-      for (const mode of ['ptc', ...(!requireDsh('@deepseek-ai/dsh/package.json').version.startsWith('0.2.1') ? ['both'] : [])]) {
-        const restore = a.ctx.tools.presentAs(mode)
+    // 0.2.2 removed the per-scope `tools.presentAs()` toggle: a presentation
+    // mode is selected by mounting the matching executor plugin in that scope.
+    let scopedExecutorFiber
+    const withPtcExecutor = async (agent, run) => {
+      if (scopedExecutorFiber !== undefined) { await scopedExecutorFiber.dispose(); scopedExecutorFiber = undefined }
+      const ptcModule = await import(pathToFileURL(requireTools.resolve('@deepseek-ai/dsh-tool-executor-ptc')).href)
+      const fiber = agent.ctx.plugin({
+        inject: ['tools', 'systemPrompt', 'ptcRuntime'],
+        apply(ctx) { ctx.tools.setExecutor(new ptcModule.PtcExecutor(ctx, {})) },
+      })
+      await fiber.await()
+      try {
+        return await run()
+      } finally {
+        await fiber.dispose()
+        // Restore a defined scoped executor for this agent: disposing a scoped
+        // executor leaves its record present but empty, which would shadow the
+        // root default for every later assemble of this agent.
+        scopedExecutorFiber = agent.ctx.plugin(nativeExecutor.default ?? nativeExecutor, {})
+        await scopedExecutorFiber.await()
+      }
+    }
+    await t.test('PTC tool executor keeps the operation SDK stable after status', async () => {
+      await withPtcExecutor(a, async () => {
         const assembly = await assemble(a)
         const sdk = assembly.sections.find(section => section.name === 'tools:sdk').text
         assert.doesNotMatch(sdk, /agent_teams_open/)
         for (const name of TEAM_TOOL_NAMES) assert.ok(sdk.includes(name), name)
         const before = await header(a)
-        const result = await host.tools.execute({ name: 'run_code', arguments: { code: 'return await tools.agent_teams_status({});', description: 'Read current team state' }, callId: 'sdk-status-' + mode, agent: a, signal: new AbortController().signal })
+        const result = await runTool(a, 'run_code', { code: 'return await tools.agent_teams_status({});', description: 'Read current team state' }, 'sdk-status-ptc', new AbortController().signal)
         assert.equal(result.isError, false, JSON.stringify(result))
         assert.equal(await header(a), before)
-        restore()
-      }
+      })
     })
     await t.test('real run_code may discard status output without losing operating rules', async () => {
-      const restore = a.ctx.tools.presentAs('ptc')
-      try {
+      await withPtcExecutor(a, async () => {
         const before = await header(a)
-        const result = await host.tools.execute({ name: 'run_code', arguments: { code: 'await tools.agent_teams_status({}); return "STATUS_OUTPUT_DISCARDED";', description: 'Inspect current team without returning the result' }, callId: 'discard-status-output', agent: a, signal: new AbortController().signal })
+        const result = await runTool(a, 'run_code', { code: 'await tools.agent_teams_status({}); return "STATUS_OUTPUT_DISCARDED";', description: 'Inspect current team without returning the result' }, 'discard-status-output', new AbortController().signal)
         assert.equal(result.isError, false, JSON.stringify(result))
         assert.match(JSON.stringify(result.content), /STATUS_OUTPUT_DISCARDED/)
         assert.doesNotMatch(JSON.stringify(result.content), /attempt_id|captain protocol/)
         assert.ok(a.session.events.some(event => event.type === 'tool/ptc-dispatch' && event.data.name === 'agent_teams_status'))
         assertCaptainProtocol(renderPrompt(await assemble(a)))
         assert.equal(await header(a), before)
-      } finally { restore() }
+      })
     })
     await t.test('HMR removes old masks and restores persisted participants in existing scopes', async () => {
       await fiber.dispose()
       assert.equal(host.tools.get('agent_teams_open', b), undefined)
-      assert.equal((await names(b)).length, 14)
+      assert.equal((await names(b)).length, TEAM_TOOL_NAMES.length)
       assert.doesNotMatch(renderPrompt(await assemble(b)), /AgentTeams captain protocol/)
       fiber = host.plugin(plugin)
       await fiber.await()
-      assert.equal((await names(a)).length, 14)
+      assert.equal((await names(a)).length, TEAM_TOOL_NAMES.length)
       assert.deepEqual(await names(b), captainNames)
       assertCaptainProtocol(renderPrompt(await assemble(b)))
       assert.equal(await header(b), initialHeader)
@@ -243,26 +285,28 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
     await t.test('a cold captain loads its durable role before its first request', async () => {
       const cold = createAgent(a.id)
       host.emit('agent/session-start', { agent: cold, source: 'resume' })
-      assert.equal((await names(cold)).length, 14)
+      assert.equal((await names(cold)).length, TEAM_TOOL_NAMES.length)
       assert.equal(await header(cold), initialHeader)
       // This new Agent has no historical tool calls. Persisted work is
       // still directly addressable through the original business tools.
       assert.equal(cold.session.events.length, 0)
-      const result = await host.tools.execute({ name: 'agent_teams_status', arguments: {}, callId: 'cold-direct-status', agent: cold, signal: new AbortController().signal })
+      const result = await runTool(cold, 'agent_teams_status', {}, 'cold-direct-status', new AbortController().signal)
       assert.equal(result.isError, false, JSON.stringify(result))
       assert.match(JSON.stringify(result.content), /Saved/)
       assertCaptainProtocol(renderPrompt(await assemble(cold)))
     })
     await t.test('archive and idle preserve the original captain prefix', async () => {
       await archiveTeamDir(stateRoot, team.id)
-      assert.equal((await names(a)).length, 14)
+      assert.equal((await names(a)).length, TEAM_TOOL_NAMES.length)
       host.emit('agent/status', { agent: a, status: 'idle' })
       assert.deepEqual(await names(a), captainNames)
     })
     await t.test('create, status and archive preserve the prefix in native and nested dispatch', async () => {
       for (const nested of [false, true]) {
         assert.equal(await header(a), initialHeader)
-        const exec = name => host.tools.execute({ name, arguments: name === 'agent_teams_create' ? { name: 'Saved', description: 'Preserve the requested goal', approval: 'required' } : {}, callId: name + '-test', agent: a, signal: new AbortController().signal, ...(nested ? { parent: {} } : {}) })
+        // 0.2.2 batch input has no `parent`; the native and batch dispatch paths
+        // are the same now, so run the equivalent single-call batch each pass.
+        const exec = name => runTool(a, name, name === 'agent_teams_create' ? { name: 'Saved', description: 'Preserve the requested goal', approval: 'required' } : {}, name + '-test', new AbortController().signal)
         for (const name of ['agent_teams_create', 'agent_teams_status', 'agent_teams_delete']) {
           const result = await exec(name)
           assert.equal(result.isError, false, JSON.stringify(result))
@@ -292,7 +336,7 @@ test('stable tool presentation uses real scoped registry and prompt assembly', a
   } finally {
     await fiber.dispose()
     for (const scope of scopes.reverse()) await scope.dispose()
-    await business.dispose(); await tools.dispose(); await worker.dispose(); await prompt.dispose()
+    await business.dispose(); await executorFiber.dispose(); await tools.dispose(); await worker.dispose(); await prompt.dispose()
     await rm(workspace, { recursive: true, force: true })
   }
 })
