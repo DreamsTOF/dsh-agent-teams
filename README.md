@@ -6,24 +6,11 @@
   <img src="./assets/readme/hero.svg" width="100%" alt="dsh-agent-teams turns one DeepSeek Harness session into a coordinated multi-agent team">
 </p>
 
-<div align="center">
-
-[![AtomGit](https://atomgit.com/NanmiCoder/dsh-agent-teams/star/new_badge.svg)](https://atomgit.com/NanmiCoder/dsh-agent-teams)
-
-</div>
-
 <p align="center">
-  <a href="https://dshfind.com/en/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://img.shields.io/badge/recommended%20by-dshfind-FFD700?style=flat-square" alt="Recommended by dshfind"></a>
-  <a href="https://dshfind.com/en/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?lang=en" alt="dshfind score"></a>
-  <a href="https://dshfind.com/en/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?metric=downloads&amp;lang=en" alt="dshfind downloads"></a>
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@nanmicoder/dsh-agent-teams"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-agent-teams?style=flat-square&amp;color=5B4CF0" alt="npm version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT license"></a>
   <a href="./cordis.patch.yml"><img src="https://img.shields.io/badge/DSH-Web%20%2B%20Headless-5B4CF0?style=flat-square" alt="DSH Web and Headless"></a>
+  <img src="https://img.shields.io/badge/distribution-Git%20only-5B4CF0?style=flat-square" alt="Git only">
 </p>
-
 ## One prompt. A working team.
 
 `dsh-agent-teams` turns the current DeepSeek Harness session into a captain that can assemble durable sub-agents, split a goal into dependency-aware tasks, and coordinate work through direct messages.
@@ -34,10 +21,9 @@ Ask in natural language. The plugin provides the team protocol, 14 coordination 
   <img src="./assets/readme/workspace.png" width="100%" alt="AgentTeams native workspace with members, task dependencies, and progress">
 </p>
 
-## Releases
+## Distribution
 
-[Latest release](https://github.com/DreamsTOF/dsh-agent-teams/releases/latest) adds member runtime model switching, Markdown member definitions with tool/skill/MCP filtering, per-member task/token quotas with handover, and exact fork team identity. It targets Harness `0.2.2-rc.1`. See the [tested matrix](./compatibility.json) and [release notes](./release-notes/v0.2.0.md).
-
+This repository is the **DreamsTOF-maintained build**. It has diverged substantially from its upstream ancestor and is **not published to npm** — install and update it from Git only (see below). Releases are Git tags on this repository; the current line targets DeepSeek Harness `0.2.2-rc.1` with plugin version `0.2.0` (see [compatibility](./compatibility.json) and [release notes](./release-notes/v0.2.0.md)).
 ## Why AgentTeams?
 
 | Capability | What it changes |
@@ -53,11 +39,20 @@ Ask in natural language. The plugin provides the team protocol, 14 coordination 
 
 The conversation card and activity panel use Harness's official locale service. They follow live language changes between English and Simplified Chinese—including status labels, dynamic summaries, controls, archive markers, and accessibility text—without a page reload or a separate plugin setting.
 
-## Install and choose versions
+## Install (Git only)
 
-**Recommended pair: DeepSeek Harness `0.2.2-rc.1` + AgentTeams `0.2.0`. The host remains an RC.**
+This plugin is distributed from the Git repository, **not npm**. Install DeepSeek Harness on the target host first, then install the plugin from Git.
 
-| Use case | DeepSeek Harness | AgentTeams plugin |
+### 1. DeepSeek Harness (host)
+
+```sh
+npm install --global @deepseek-ai/dsh
+dsh --version
+```
+
+Check the version against the support matrix below.
+
+| Use case | DeepSeek Harness | This plugin |
 | --- | --- | --- |
 | **Recommended** | **`0.2.2-rc.1`** | **`0.2.0`** |
 | Preview host | `0.2.1-rc.3`, `0.2.1-rc.2` | `0.2.0` |
@@ -68,31 +63,9 @@ The conversation card and activity panel use Harness's official locale service. 
 | Retaining an older Alpha | `0.1.2-alpha.2` | `0.2.0` |
 | Other installable hosts | At or above `0.1.2-alpha.2` | `0.2.0` |
 
-CI verifies the exact hosts listed above the last row. The installer accepts other hosts at or above the minimum version.
+The installer accepts other hosts at or above the minimum version.
 
-### Desktop app
-
-In the app sidebar, open **Plugins → Add plugin**. You can install directly from GitHub by pasting this repository URL into the plugin input, without a version, tag, or commit suffix:
-
-```text
-https://github.com/DreamsTOF/dsh-agent-teams
-```
-
-This installs from the default branch and is available immediately after release. The equivalent shorthand is also supported:
-
-```text
-github:DreamsTOF/dsh-agent-teams
-```
-
-For npm installation, enter the versioned spec `@nanmicoder/dsh-agent-teams@0.2.0`. Desktop's pnpm 11 defaults to a 24-hour minimum release age: for 24 hours after a release, a bare package name or `@latest` installs the previous version even when the preview shows the newest one, and the installation fails if that version is incompatible with your host. An exact version installs immediately. Changing registry mirrors does not remove this policy. GitHub access is required for the Git route; it may contain newer code than npm.
-
-Install it, then choose **Enable now**. If the host asks for a restart, restart the desktop app. Do not disable compatibility checks or the global release-age policy to install the plugin.
-
-The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and an ordinary standalone CLI cannot manage its desktop profile. The CLI carrier installed by the desktop app can manage that profile in `0.2.2-rc.1`. Check the embedded core against the compatibility list. Harness `0.2.2-rc.1` is the exact published target; its RC status is unchanged. See the [release migration evidence](./docs/harness-0.2.1-rc.2/README.md).
-
-### Install from Git
-
-The Git route installs straight from the repository (the default branch, or a pinned tag / branch / commit) and needs network access to GitHub.
+### 2. The plugin (from Git)
 
 **Desktop app:** open **Plugins → Add plugin** and paste the repository URL (or the `github:` shorthand). Append `#<tag|branch|commit>` to pin a revision:
 
@@ -102,6 +75,8 @@ github:DreamsTOF/dsh-agent-teams
 github:DreamsTOF/dsh-agent-teams#v0.2.0
 ```
 
+Choose **Enable now**; restart the desktop app only if the host asks.
+
 **CLI / Web profile:** install with the same spec, then stop and restart that profile's Harness process and refresh the browser:
 
 ```sh
@@ -109,45 +84,13 @@ dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
 dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams#v0.2.0   # pin a tag, branch, or commit
 ```
 
-The default branch commits the verified `lib/` build outputs, so installation needs no `prepare` hook or build-script approval. To update, run the install command again (optionally with a newer tag), restart the profile, and refresh. For a manually cloned checkout, run `pnpm install --frozen-lockfile` and `pnpm build` after pulling, then restart the Harness process — updating Git alone does not refresh local build output.
+Replace `web` with your active CLI profile. Installation reads the committed `lib/` build outputs, so no `prepare` hook or build-script approval is needed. To update, run the install again (optionally with a newer tag), then restart the profile and refresh.
 
-### CLI / Web: 1. Install DeepSeek Harness
-
-```sh
-npm install --global @deepseek-ai/dsh
-dsh --version
-```
-
-The command selects the host's npm `latest`; check `dsh --version` against the support matrix after upgrading. Alpha is opt-in: select an exact Alpha version from the table and lock all host dependencies as described in the [maintenance guide](./docs/maintenance-workflow.md).
-
-### CLI / Web: 2. Install the AgentTeams plugin
-
-Install or upgrade from npm with an exact version (currently `0.2.0`):
-
-```sh
-dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.2.0
-```
-
-For a CLI-managed installation, replace `web` with your active CLI profile. **Stop and restart that profile's Harness process, then refresh the browser.** Installing the plugin does not upgrade Harness; the host and plugin have independent `latest` channels.
-
-Alternatively, install or update from the latest GitHub default branch without a tag or commit suffix:
-
-```sh
-dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
-```
-
-To update, run the command again with the new version, then restart the profile; a bare package name can retain an already installed exact version. For 24 hours after a release, a bare package name or `@latest` installs the previous version. If a registry mirror has not synced the release, append `--registry=https://registry.npmjs.org` to the npm command. GitHub default-branch code may be newer than npm `latest`. The default branch includes the verified server, client, and type build outputs in `lib/`. The repository distributes these outputs so installation does not need a `prepare` hook or build-script approval. Source maintainers must run `pnpm build` and update the committed outputs whenever the source changes. Existing npm releases remain immutable.
-
-For a manually cloned checkout, run `pnpm install --frozen-lockfile` and `pnpm build` after pulling, then restart the corresponding Harness process. Updating Git alone does not update local build output. See the [maintenance guide](./docs/maintenance-workflow.md).
-
-> For `0.1.0-*` / `0.1.1-*` hosts older than `0.1.2-alpha.2`, keep a working pair and follow the [older-version and diagnostic guide](./docs/maintenance-workflow.md).
-
-See the full [compatibility matrix](./compatibility.json), [source installation and Alpha testing guide](./docs/maintenance-workflow.md), and [verification coverage and platform limits](./docs/maintenance-2026-09-06/release/README.md).
+For a manually cloned checkout, run `pnpm install --frozen-lockfile` and `pnpm build` after pulling, then restart the Harness process — updating Git alone does not refresh local build output.
 
 Then ask for a team directly:
 
 > Use AgentTeams to review the commits after v0.5.3 from performance, security, and product perspectives. Return one consolidated report.
-
 ## View teams in the workspace
 
 Click **View team** in the current chat header or the team card below a reply to open the native **Team collaboration** tab. The entry belongs to its chat, rather than the general workspace start page.
@@ -296,3 +239,4 @@ Use an explicit profile flag: `/agent-teams --profile demo-delivery implement th
 ## License
 
 [MIT](./LICENSE)
+

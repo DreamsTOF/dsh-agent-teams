@@ -6,24 +6,11 @@
   <img src="./assets/readme/hero.svg" width="100%" alt="dsh-agent-teams 把一个 DeepSeek Harness 会话变成可协作的多智能体团队">
 </p>
 
-<div align="center">
-
-[![AtomGit](https://atomgit.com/NanmiCoder/dsh-agent-teams/star/new_badge.svg)](https://atomgit.com/NanmiCoder/dsh-agent-teams)
-
-</div>
-
 <p align="center">
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://img.shields.io/badge/%E7%94%B1%20dshfind-%E6%8E%A8%E8%8D%90-FFD700?style=flat-square" alt="由 dshfind 推荐"></a>
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?lang=zh" alt="dshfind 评分"></a>
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@nanmicoder/dsh-agent-teams"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-agent-teams?style=flat-square&amp;color=5B4CF0" alt="npm 版本"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT 许可证"></a>
   <a href="./cordis.patch.yml"><img src="https://img.shields.io/badge/DSH-Web%20%2B%20Headless-5B4CF0?style=flat-square" alt="DSH Web 与 Headless"></a>
+  <img src="https://img.shields.io/badge/distribution-Git%20only-5B4CF0?style=flat-square" alt="仅 Git">
 </p>
-
 ## 一句话，拉起一支真正协作的团队
 
 `dsh-agent-teams` 让当前 DeepSeek Harness 会话成为队长：创建可续聊的子 Agent、把目标拆成有依赖的任务，并通过直达消息协调成员工作。
@@ -34,10 +21,9 @@
   <img src="./assets/readme/workspace.png" width="100%" alt="DeepSeek Harness 对话与 AgentTeams 实时活动面板，展示成员、任务依赖和回报">
 </p>
 
-## 版本更新
+## 分发方式
 
-[最新发布](https://github.com/DreamsTOF/dsh-agent-teams/releases/latest) 新增成员运行时模型切换、Markdown 成员定义（工具/技能/MCP 过滤）、按成员的配额与交接、以及精确的 fork 团队身份。目标宿主为 Harness `0.2.2-rc.1`。详见[测试矩阵](./compatibility.json)和[发布说明](./release-notes/v0.2.0.md)。
-
+本仓库是 **DreamsTOF 自己维护的版本**，已与上游祖先基本脱离，**未发布到 npm** —— 请仅通过 Git 安装与更新（见下文）。发布即本仓库的 Git tag；当前线对应 DeepSeek Harness `0.2.2-rc.1`、插件版本 `0.2.0`（见[兼容清单](./compatibility.json) 与[发布说明](./release-notes/v0.2.0.md)）。
 ## 为什么需要 AgentTeams？
 
 | 能力 | 带来的变化 |
@@ -52,11 +38,20 @@
 
 对话卡片与活动面板接入 Harness 官方多语言服务，会随宿主在简体中文和英文之间实时切换；任务/成员状态、动态摘要、操作按钮、历史归档标识和无障碍文案都会同步更新，无需刷新页面，也不增加插件自己的语言设置。
 
-## 安装与版本选择
+## 安装（仅 Git）
 
-**推荐组合：DeepSeek Harness `0.2.2-rc.1` + AgentTeams `0.2.0`。宿主仍为 RC 版本。**
+本插件从 Git 仓库分发，**不在 npm 上**。先为目标宿主安装 DeepSeek Harness，再从 Git 安装插件。
 
-| 使用场景 | DeepSeek Harness | AgentTeams 插件 |
+### 1. DeepSeek Harness（宿主）
+
+```sh
+npm install --global @deepseek-ai/dsh
+dsh --version
+```
+
+用下表核对版本。
+
+| 使用场景 | DeepSeek Harness | 本插件 |
 | --- | --- | --- |
 | **推荐版本** | **`0.2.2-rc.1`** | **`0.2.0`** |
 | 预览宿主 | `0.2.1-rc.3`、`0.2.1-rc.2` | `0.2.0` |
@@ -67,33 +62,11 @@
 | 保留旧 Alpha | `0.1.2-alpha.2` | `0.2.0` |
 | 其他可安装宿主 | `0.1.2-alpha.2` 及以上 | `0.2.0` |
 
-CI 验证表中最后一行之前的精确宿主版本。安装器也接受达到最低版本要求的其他宿主。
+安装器也接受达到最低版本要求的其他宿主。
 
-### 桌面端
+### 2. 插件（从 Git）
 
-在应用侧栏打开「插件 → 添加插件」，可以直接通过 GitHub 地址安装。在插件输入框中粘贴下面的仓库地址，无需追加版本号、tag 或 commit：
-
-```text
-https://github.com/DreamsTOF/dsh-agent-teams
-```
-
-此方式从默认分支安装，刚发布后即可使用。也支持下面的等价简写：
-
-```text
-github:DreamsTOF/dsh-agent-teams
-```
-
-从 npm 安装时输入带版本号的包名 `@nanmicoder/dsh-agent-teams@0.2.0`。桌面端的 pnpm 11 默认不自动安装发布未满 24 小时的版本：新版发布后的 24 小时内，不带版本号或使用 `@latest` 都会装到上一个版本，即使预览显示的是新版；如果上一个版本与你的宿主不兼容，安装会失败。写明版本号可以立即安装该版本；更换镜像源不会消除这项规则。GitHub 方式需要能够访问 GitHub，默认分支代码可能先于 npm 发布。
-
-安装完成后点击「立即启用」；宿主提示需要重启时，重启桌面应用。无需关闭兼容检查或全局发布等待期规则。
-
-桌面端自带 Harness 内核与包管理器，升级全局 CLI 不会升级桌面端；普通独立 CLI 不能管理桌面 profile，桌面端自带的 CLI carrier 在此版本可以管理。当前精确目标是已发布的 `0.2.2-rc.1`，仍属于 RC。详见[迁移验收记录](./docs/harness-0.2.1-rc.2/README.md)。
-
-### 从 Git 安装
-
-Git 方式直接从仓库安装（默认分支，或固定到某个 tag / 分支 / commit），需要能访问 GitHub。
-
-**桌面端：** 打开「插件 → 添加插件」，粘贴仓库地址（或 `github:` 简写）。在末尾追加 `#<tag|分支|commit>` 可固定版本：
+**桌面端：** 打开「插件 → 添加插件」，粘贴仓库地址（或 `github:` 简写）。末尾追加 `#<tag|分支|commit>` 可固定版本：
 
 ```text
 https://github.com/DreamsTOF/dsh-agent-teams
@@ -101,54 +74,22 @@ github:DreamsTOF/dsh-agent-teams
 github:DreamsTOF/dsh-agent-teams#v0.2.0
 ```
 
-**CLI / Web profile：** 用同样的地址安装，然后停止并重启该 profile 的 Harness 进程，再刷新浏览器：
+点击「立即启用」；仅在宿主提示时重启桌面应用。
+
+**CLI / Web profile：** 用同样的地址安装，然后停止并重启该 profile 的 Harness 进程并刷新浏览器：
 
 ```sh
 dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
 dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams#v0.2.0   # 固定 tag、分支或 commit
 ```
 
-默认分支已提交经过验证的 `lib/` 构建产物，安装时不需要 `prepare` 钩子或批准构建脚本。更新时再次执行安装命令（可指定更新的 tag），重启 profile 并刷新。手动克隆源码时，拉取后需运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再重启 Harness——只更新 Git 不会刷新本地构建产物。
+将 `web` 换成实际 CLI profile。安装直接读取已提交的 `lib/` 构建产物，无需 `prepare` 钩子或批准构建脚本。更新时再次执行安装（可指定更新的 tag），重启 profile 并刷新即可。
 
-### CLI / Web：1. 安装 DeepSeek Harness
-
-```sh
-npm install --global @deepseek-ai/dsh
-dsh --version
-```
-
-此命令安装宿主的 npm `latest`；升级后请用 `dsh --version` 对照兼容清单。Alpha 仅供主动测试：手动指定表中的 Alpha 版本，并按[维护指南](./docs/maintenance-workflow.md)锁定整组宿主依赖。
-
-### CLI / Web：2. 安装 AgentTeams 插件
-
-从 npm 安装或升级插件时写明版本号（当前正式版为 `0.2.0`）：
-
-```sh
-dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.2.0
-```
-
-CLI 管理的安装可将 `web` 换成实际使用的 CLI profile。**安装后，停止并重新启动该 profile 的 Harness 进程，再刷新浏览器。** 安装插件不会自动升级宿主；Harness 的 `latest` 与插件的 `latest` 是两个独立渠道。
-
-也可以从 GitHub 默认分支安装或更新，无需追加 tag 或 commit：
-
-```sh
-dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
-```
-
-更新时把命令里的版本号换成新版本再运行，然后重启对应 profile；已有安装只重复裸包名时，包管理器可能保留旧的精确版本。不带版本号或使用 `@latest` 时，新版发布后的 24 小时内会装到上一个版本。镜像源尚未同步新发布时，可在 npm 命令后追加 `--registry=https://registry.npmjs.org`。GitHub 默认分支的代码可能先于 npm `latest` 发布；默认分支包含已验证的 `lib/` 构建产物。仓库随代码分发服务端、客户端和类型产物，安装时不需要执行 `prepare` 或批准构建脚本。源码维护者每次修改源码后，都需运行 `pnpm build` 并更新已提交的产物。已经发布的 npm 产物保持不变。
-
-手动克隆源码的用户，拉取代码后需重新运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再重启对应的 Harness；只更新 Git 不会更新本地构建产物。详见[维护指南](./docs/maintenance-workflow.md)。
-
-> 低于 `0.1.2-alpha.2` 的旧 `0.1.0-*` / `0.1.1-*` 宿主，请先保留已工作的组合，参考[旧版本与诊断指引](./docs/maintenance-workflow.md)。
-
-完整[兼容清单](./compatibility.json)、[源码安装与 Alpha 验证](./docs/maintenance-workflow.md)、[已验证范围与平台限制](./docs/maintenance-2026-09-06/release/README.md)。
+手动克隆源码时，拉取后运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再重启 Harness——只更新 Git 不会刷新本地构建产物。
 
 接着直接用自然语言拉团队：
 
 > 使用 AgentTeams 审查 v0.5.3 之后的提交，分别从性能、安全和产品角度分工，最后输出一份汇总报告。
-
-队长会话从第一轮起保留精简的固定核心协议和原有 14 个业务工具，直接调用，无需额外的加载工具或激活调用。已配置模板的精简目录固定保留。创建、批准、继续或结束团队都不会改写系统提示词和工具 schema，会话压缩或代码模式丢弃工具结果也不会丢失核心规则。成员保留四个团队工具、固定成员说明及普通编程/研究工具。Web 批准后会通知并唤醒队长，后续成员报告会再次唤醒它，无需忙轮询。详见[固定协议与 benchmark 标准](./docs/progressive-loading.md)。
-
 ## 在工作区查看团队
 
 从当前聊天标题栏或回复下方的团队卡片点击 **查看团队**，在原生「团队协作」标签页中查看成员分工、任务依赖和执行进度。入口跟随所属聊天，不放在通用工作区开始页。
@@ -264,3 +205,4 @@ pnpm verify
 ## 许可证
 
 [MIT](./LICENSE)
+
