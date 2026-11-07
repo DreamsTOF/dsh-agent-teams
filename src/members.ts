@@ -22,7 +22,8 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type SessionFormatBearer, guardSubagentCreation, startMember, usesManagedActivations, guardSubagentDelivery, installContinuableMemberSetup, memberToolFilter, queueMemberPrompt, restrictableToolNames, startMemberWithLenientFilter, steerMemberPrompt, sessionOwnEvents } from './harness-compat.ts'
 import { installMemberSkillFilter } from './member-skills.ts'
-import { installMemberMcpInstructionsFilter } from './member-mcp.ts'
+import { installMemberMcpFilter } from './member-mcp.ts'
+import { installMemberToolGuidanceFilter } from './member-prompt.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { mailboxPrompt } from './mailbox.ts'
 import { nearestLiveLead } from './lineage.ts'
@@ -699,11 +700,21 @@ export function installMemberSelectionRuntime(
     // Member-scope skill visibility: only a member created from a definition
     // with a concrete skill allowlist needs the overlay. `handoff` is always
     // re-added by the overlay itself.
+    // Drop tool-guidance sections whose tool this member cannot see
+    // (`tool:pwsh` etc. are static and would otherwise outlive `tools.restrict`).
+    let disposeToolGuidance = (): void => undefined
+    try {
+      disposeToolGuidance = installMemberToolGuidanceFilter(childCtx, child)
+    } catch (error) {
+      disposeAdmission()
+      throw error
+    }
     let disposeSkills = (): void => undefined
     if (setup?.allowedSkills !== undefined) {
       try {
         disposeSkills = installMemberSkillFilter(childCtx, child, setup.allowedSkills)
       } catch (error) {
+        disposeToolGuidance()
         disposeAdmission()
         throw error
       }
@@ -711,9 +722,10 @@ export function installMemberSelectionRuntime(
     let disposeMcp = (): void => undefined
     if (setup?.allowedMcpServers !== undefined) {
       try {
-        disposeMcp = installMemberMcpInstructionsFilter(childCtx, child, setup.allowedMcpServers)
+        disposeMcp = installMemberMcpFilter(childCtx, child, setup.allowedMcpServers)
       } catch (error) {
         disposeSkills()
+        disposeToolGuidance()
         disposeAdmission()
         throw error
       }
@@ -732,7 +744,7 @@ export function installMemberSelectionRuntime(
         } catch (error) { stopFilter(); throw error }
       } catch (error) { disposeAdmission(); throw error }
     }
-    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeSetup(); disposeAdmission() }
+    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeToolGuidance(); disposeSetup(); disposeAdmission() }
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)
