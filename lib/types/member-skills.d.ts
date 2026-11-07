@@ -34,10 +34,27 @@ declare module '@deepseek-ai/dsh-llm' {
                 readonly description: string;
             }[];
         };
+        'agent-teams:member-skills': {
+            readonly kind: 'agent-teams:member-skills';
+            readonly form: 'catalog';
+            readonly entries: readonly {
+                readonly name: string;
+                readonly description: string;
+            }[];
+        };
     }
 }
 /** The always-visible handover skill name. */
 export declare const HANDOFF_SKILL_NAME = "handoff";
+/**
+ * Source kind of the member skill catalog. Deliberately NOT `skill-catalog`:
+ * host `tool-skill` owns that kind and deletes (or replaces) every message
+ * carrying it whenever its own tool is shadowed. Reusing it meant the model
+ * either saw no catalog at all or saw a full, unfiltered one while our tool
+ * rejected those names. A distinct kind keeps our catalog out of the host's
+ * catalog waterfall so the prompt and the tool stay in sync.
+ */
+export declare const MEMBER_SKILL_CATALOG_KIND = "agent-teams:member-skills";
 /** Routing description surfaced in the filtered catalog. */
 export declare const HANDOFF_SKILL_DESCRIPTION = "Write a handover document when a member reaches its task or token quota and must stop taking new work.";
 /** Ranks below host providers so a real host `handoff` skill wins; this is a fallback. */

@@ -35,11 +35,25 @@ declare module '@deepseek-ai/dsh-llm' {
       readonly incomplete?: true
       readonly entries: readonly { readonly name: string; readonly description: string }[]
     }
+    'agent-teams:member-skills': {
+      readonly kind: 'agent-teams:member-skills'
+      readonly form: 'catalog'
+      readonly entries: readonly { readonly name: string; readonly description: string }[]
+    }
   }
 }
 
 /** The always-visible handover skill name. */
 export const HANDOFF_SKILL_NAME = 'handoff'
+/**
+ * Source kind of the member skill catalog. Deliberately NOT `skill-catalog`:
+ * host `tool-skill` owns that kind and deletes (or replaces) every message
+ * carrying it whenever its own tool is shadowed. Reusing it meant the model
+ * either saw no catalog at all or saw a full, unfiltered one while our tool
+ * rejected those names. A distinct kind keeps our catalog out of the host's
+ * catalog waterfall so the prompt and the tool stay in sync.
+ */
+export const MEMBER_SKILL_CATALOG_KIND = 'agent-teams:member-skills'
 /** Routing description surfaced in the filtered catalog. */
 export const HANDOFF_SKILL_DESCRIPTION =
   'Write a handover document when a member reaches its task or token quota and must stop taking new work.'
@@ -194,14 +208,15 @@ function renderCatalog(entries: readonly { name: string; description: string }[]
   const lines = [
     '<system-reminder>',
     entries.length === 0
-      ? 'No skills are currently available to this member. Do not infer skill instructions from an empty catalog.'
+      ? 'No skills are available to this member. Do not call the `skill` tool and do not infer skill instructions.'
       : 'A skill is a reusable set of task-specific instructions. The following skills are available to this member:',
     '',
     '<available_skills>',
     ...entries.map(entry => `- \`${entry.name}\`: ${entry.description}`),
     '</available_skills>',
     '',
-    'If the task clearly matches a skill, call the `skill` tool with the exact skill name before acting. Do not use names outside this list.',
+    'This is the only valid skill catalog for this member. Ignore any other skill catalog, names from earlier turns, or names you may infer.',
+    'If the task clearly matches a skill, call the `skill` tool with the exact name from this list before acting. Never call a name outside this list.',
     '</system-reminder>',
   ]
   return lines.join('\n')
@@ -254,6 +269,16 @@ export function installMemberSkillFilter(
   const tools = (childCtx as unknown as { tools?: ToolsRegistryLike }).tools
   const skills = (childCtx as unknown as { skills?: SkillsRegistryLike }).skills
 
+  // The catalog the model sees and the names the `skill` tool accepts MUST be
+  // the same set. `catalogNames` becomes the authority as soon as the first
+  // step has resolved the real skill registry; until then the allowlist bounds
+  // both sides. Deriving them separately is what let the prompt drift.
+  let catalogNames: ReadonlySet<string> | undefined
+  const availableHint = (): string => {
+    const names = catalogNames ?? visibleSet
+    return names === undefined ? 'every skill' : [...names].sort().join(', ') || '(none)'
+  }
+
   // 1. Shadow the host `skill` tool inside this member's scope.
   const getTool = tools?.get
   const registerTool = tools?.register
@@ -268,17 +293,31 @@ export function installMemberSkillFilter(
         const requested = typeof (args as { name?: unknown } | null)?.name === 'string'
           ? ((args as { name: string }).name)
           : ''
-        if (visibleSet !== undefined && !visibleSet.has(requested.trim().toLowerCase())) {
-          throw new Error(`skill "${requested}" is not available to this member`)
+        const names = catalogNames ?? visibleSet
+        if (names !== undefined && !names.has(requested.trim().toLowerCase())) {
+          // Echo the exact catalog: a bare "not available" makes the model
+          // retry blind names from a stale catalog forever.
+          throw new Error(`skill "${requested}" is not available to this member. Available skills: ${availableHint()}. Only use names from this member's skill catalog.`)
         }
         if (originalExecute === undefined) throw new Error('skill tool is unavailable')
         return originalExecute.call(hostTool, args, exec)
       }
-      disposers.push(registerTool.call(tools, shadow))
+      const disposeShadow = registerTool.call(tools, shadow)
+      // Fail closed at the real boundary: if the scoped registration did not
+      // actually shadow the host tool, the host keeps publishing its full
+      // catalog while the member silently runs with an unrestricted `skill`
+      // tool. That is the exact prompt/tool mismatch this module exists to avoid.
+      if (getTool.call(tools, 'skill', agent) !== shadow) {
+        disposeShadow()
+        throw new Error('agent-teams: member skill filter failed to shadow the host `skill` tool')
+      }
+      disposers.push(disposeShadow)
     }
   }
 
-  // 2. Re-publish the filtered catalog on every step.
+  // 2. Publish exactly ONE filtered catalog on every step, under our own
+  //    source kind. Drop any host-owned `skill-catalog` message (empty, full,
+  //    stale or inherited) and any previous copy of ours first.
   const published = new WeakMap<object, string>()
   const off = childCtx.on('agent/pre-step', async ({ agent: stepAgent, signal }, next) => {
     const decision = await next()
@@ -292,20 +331,23 @@ export function installMemberSkillFilter(
       name: skill.name,
       description: normalizeDescription(skill.description),
     }))
+    // Catalog and tool guard share ONE authority, by construction.
+    catalogNames = new Set(entries.map(entry => entry.name.toLowerCase()))
     const digest = digestEntries(entries)
+    const retained = decision.messages.filter(message =>
+      message.source.kind !== 'skill-catalog' && message.source.kind !== MEMBER_SKILL_CATALOG_KIND)
+    const ownCatalog = decision.messages.find(message =>
+      message.source.kind === MEMBER_SKILL_CATALOG_KIND)
     const previous = published.get(stepAgent)
-    if (previous === digest) return decision
+    if (previous === digest && ownCatalog !== undefined) {
+      return { ...decision, messages: [...retained, ownCatalog] }
+    }
     published.set(stepAgent, digest)
     const catalog = createUserMessage({
       content: [{ type: 'text', text: renderCatalog(entries) }],
-      source: {
-        kind: 'skill-catalog',
-        form: 'catalog',
-        ...(previous === undefined ? {} : { update: true as const }),
-        entries,
-      },
+      source: { kind: MEMBER_SKILL_CATALOG_KIND, form: 'catalog', entries },
     })
-    return { ...decision, messages: [...decision.messages, catalog] }
+    return { ...decision, messages: [...retained, catalog] }
   })
   disposers.push(off)
 
