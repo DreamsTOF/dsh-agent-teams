@@ -28,7 +28,7 @@
 
 `dsh-agent-teams` 让当前 DeepSeek Harness 会话成为队长：创建可续聊的子 Agent、把目标拆成有依赖的任务，并通过直达消息协调成员工作。
 
-你只需用自然语言提出目标。插件会提供精简的固定团队协议、14 个业务工具、持久化状态、自动共享任务调度和实时 Web UI，不需要额外的 Workflow 引擎。
+你只需用自然语言提出目标。插件会提供精简的固定团队协议、15 个业务工具、持久化状态、自动共享任务调度和实时 Web UI，不需要额外的 Workflow 引擎。
 
 <p align="center">
   <img src="./assets/readme/workspace.png" width="100%" alt="DeepSeek Harness 对话与 AgentTeams 实时活动面板，展示成员、任务依赖和回报">
@@ -36,7 +36,7 @@
 
 ## 版本更新
 
-[最新发布](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) 恢复 Harness `0.2.2-rc.1` 的成员模型回退，并改进任务收尾、活动更新和交付物审计。推荐宿主为 Harness `0.2.1-rc.2`。详见[测试矩阵](./compatibility.json)和[发布说明](./release-notes/v0.1.29.md)。
+[最新发布](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) 新增成员运行时模型切换、Markdown 成员定义（工具/技能/MCP 过滤）、按成员的配额与交接、以及精确的 fork 团队身份。目标宿主为 Harness `0.2.2-rc.1`。详见[测试矩阵](./compatibility.json)和[发布说明](./release-notes/v0.2.0.md)。
 
 ## 为什么需要 AgentTeams？
 
@@ -54,18 +54,18 @@
 
 ## 安装与版本选择
 
-**推荐组合：DeepSeek Harness `0.2.1-rc.2` + AgentTeams `0.1.29`。宿主仍为 RC 版本。**
+**推荐组合：DeepSeek Harness `0.2.2-rc.1` + AgentTeams `0.2.0`。宿主仍为 RC 版本。**
 
 | 使用场景 | DeepSeek Harness | AgentTeams 插件 |
 | --- | --- | --- |
-| **推荐版本** | **`0.2.1-rc.2`** | **`0.1.29`** |
-| 预览宿主 | `0.2.2-rc.1`、`0.2.1-rc.3` | `0.1.29` |
-| 上一推荐 RC | `0.2.1-rc.1`, `0.2.0-rc.2`, `0.1.7-rc.2` | `0.1.29` |
-| 保留旧 RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.1.29` |
-| 保留旧 RC | `0.1.2-rc.1` | `0.1.29` |
-| 开发者测试 Alpha | `0.1.2-alpha.5` | `0.1.29` |
-| 保留旧 Alpha | `0.1.2-alpha.2` | `0.1.29` |
-| 其他可安装宿主 | `0.1.2-alpha.2` 及以上 | `0.1.29` |
+| **推荐版本** | **`0.2.2-rc.1`** | **`0.2.0`** |
+| 预览宿主 | `0.2.1-rc.3`、`0.2.1-rc.2` | `0.2.0` |
+| 上一推荐 RC | `0.2.1-rc.1`, `0.2.0-rc.2`, `0.1.7-rc.2` | `0.2.0` |
+| 保留旧 RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.2.0` |
+| 保留旧 RC | `0.1.2-rc.1` | `0.2.0` |
+| 开发者测试 Alpha | `0.1.2-alpha.5` | `0.2.0` |
+| 保留旧 Alpha | `0.1.2-alpha.2` | `0.2.0` |
+| 其他可安装宿主 | `0.1.2-alpha.2` 及以上 | `0.2.0` |
 
 CI 验证表中最后一行之前的精确宿主版本。安装器也接受达到最低版本要求的其他宿主。
 
@@ -83,11 +83,11 @@ https://github.com/NanmiCoder/dsh-agent-teams
 github:NanmiCoder/dsh-agent-teams
 ```
 
-从 npm 安装时输入带版本号的包名 `@nanmicoder/dsh-agent-teams@0.1.29`。桌面端的 pnpm 11 默认不自动安装发布未满 24 小时的版本：新版发布后的 24 小时内，不带版本号或使用 `@latest` 都会装到上一个版本，即使预览显示的是新版；如果上一个版本与你的宿主不兼容，安装会失败。写明版本号可以立即安装该版本；更换镜像源不会消除这项规则。GitHub 方式需要能够访问 GitHub，默认分支代码可能先于 npm 发布。
+从 npm 安装时输入带版本号的包名 `@nanmicoder/dsh-agent-teams@0.2.0`。桌面端的 pnpm 11 默认不自动安装发布未满 24 小时的版本：新版发布后的 24 小时内，不带版本号或使用 `@latest` 都会装到上一个版本，即使预览显示的是新版；如果上一个版本与你的宿主不兼容，安装会失败。写明版本号可以立即安装该版本；更换镜像源不会消除这项规则。GitHub 方式需要能够访问 GitHub，默认分支代码可能先于 npm 发布。
 
 安装完成后点击「立即启用」；宿主提示需要重启时，重启桌面应用。无需关闭兼容检查或全局发布等待期规则。
 
-桌面端自带 Harness 内核与包管理器，升级全局 CLI 不会升级桌面端；普通独立 CLI 不能管理桌面 profile，桌面端自带的 CLI carrier 在此版本可以管理。当前精确目标是已发布的 `0.2.1-rc.2`，仍属于 RC；此前源码预测的 `0.2.0` 已退出支持声明。详见[迁移验收记录](./docs/harness-0.2.1-rc.2/README.md)。
+桌面端自带 Harness 内核与包管理器，升级全局 CLI 不会升级桌面端；普通独立 CLI 不能管理桌面 profile，桌面端自带的 CLI carrier 在此版本可以管理。当前精确目标是已发布的 `0.2.2-rc.1`，仍属于 RC。详见[迁移验收记录](./docs/harness-0.2.1-rc.2/README.md)。
 
 ### CLI / Web：1. 安装 DeepSeek Harness
 
@@ -100,10 +100,10 @@ dsh --version
 
 ### CLI / Web：2. 安装 AgentTeams 插件
 
-从 npm 安装或升级插件时写明版本号（当前正式版为 `0.1.29`）：
+从 npm 安装或升级插件时写明版本号（当前正式版为 `0.2.0`）：
 
 ```sh
-dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.1.29
+dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.2.0
 ```
 
 CLI 管理的安装可将 `web` 换成实际使用的 CLI profile。**安装后，停止并重新启动该 profile 的 Harness 进程，再刷新浏览器。** 安装插件不会自动升级宿主；Harness 的 `latest` 与插件的 `latest` 是两个独立渠道。
@@ -126,7 +126,7 @@ dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
 
 > 使用 AgentTeams 审查 v0.5.3 之后的提交，分别从性能、安全和产品角度分工，最后输出一份汇总报告。
 
-队长会话从第一轮起保留精简的固定核心协议和原有 14 个业务工具，直接调用，无需额外的加载工具或激活调用。已配置模板的精简目录固定保留。创建、批准、继续或结束团队都不会改写系统提示词和工具 schema，会话压缩或代码模式丢弃工具结果也不会丢失核心规则。成员保留四个团队工具、固定成员说明及普通编程/研究工具。Web 批准后会通知并唤醒队长，后续成员报告会再次唤醒它，无需忙轮询。详见[固定协议与 benchmark 标准](./docs/progressive-loading.md)。
+队长会话从第一轮起保留精简的固定核心协议和原有 15 个业务工具，直接调用，无需额外的加载工具或激活调用。已配置模板的精简目录固定保留。创建、批准、继续或结束团队都不会改写系统提示词和工具 schema，会话压缩或代码模式丢弃工具结果也不会丢失核心规则。成员保留四个团队工具、固定成员说明及普通编程/研究工具。Web 批准后会通知并唤醒队长，后续成员报告会再次唤醒它，无需忙轮询。详见[固定协议与 benchmark 标准](./docs/progressive-loading.md)。
 
 ## 在工作区查看团队
 

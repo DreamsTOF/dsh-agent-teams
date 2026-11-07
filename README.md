@@ -28,7 +28,7 @@
 
 `dsh-agent-teams` turns the current DeepSeek Harness session into a captain that can assemble durable sub-agents, split a goal into dependency-aware tasks, and coordinate work through direct messages.
 
-Ask in natural language. The plugin provides the team protocol, 14 coordination tools, persistent state, an automatic shared-task scheduler, and a live Web UI—without requiring a separate workflow engine.
+Ask in natural language. The plugin provides the team protocol, 15 coordination tools, persistent state, an automatic shared-task scheduler, and a live Web UI—without requiring a separate workflow engine.
 
 <p align="center">
   <img src="./assets/readme/workspace.png" width="100%" alt="AgentTeams native workspace with members, task dependencies, and progress">
@@ -36,7 +36,7 @@ Ask in natural language. The plugin provides the team protocol, 14 coordination 
 
 ## Releases
 
-[Latest release](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) restores member model fallback on Harness `0.2.2-rc.1` and improves task settlement, activity updates, and artifact auditing. The recommended host is Harness `0.2.1-rc.2`. See the [tested matrix](./compatibility.json) and [release notes](./release-notes/v0.1.29.md).
+[Latest release](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) adds member runtime model switching, Markdown member definitions with tool/skill/MCP filtering, per-member task/token quotas with handover, and exact fork team identity. It targets Harness `0.2.2-rc.1`. See the [tested matrix](./compatibility.json) and [release notes](./release-notes/v0.2.0.md).
 
 ## Why AgentTeams?
 
@@ -55,18 +55,18 @@ The conversation card and activity panel use Harness's official locale service. 
 
 ## Install and choose versions
 
-**Recommended pair: DeepSeek Harness `0.2.1-rc.2` + AgentTeams `0.1.29`. The host remains an RC.**
+**Recommended pair: DeepSeek Harness `0.2.2-rc.1` + AgentTeams `0.2.0`. The host remains an RC.**
 
 | Use case | DeepSeek Harness | AgentTeams plugin |
 | --- | --- | --- |
-| **Recommended** | **`0.2.1-rc.2`** | **`0.1.29`** |
-| Preview host | `0.2.2-rc.1`, `0.2.1-rc.3` | `0.1.29` |
-| Previous recommended RC | `0.2.1-rc.1`, `0.2.0-rc.2`, `0.1.7-rc.2` | `0.1.29` |
-| Legacy RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.1.29` |
-| Retaining an older RC | `0.1.2-rc.1` | `0.1.29` |
-| Developer Alpha testing | `0.1.2-alpha.5` | `0.1.29` |
-| Retaining an older Alpha | `0.1.2-alpha.2` | `0.1.29` |
-| Other installable hosts | At or above `0.1.2-alpha.2` | `0.1.29` |
+| **Recommended** | **`0.2.2-rc.1`** | **`0.2.0`** |
+| Preview host | `0.2.1-rc.3`, `0.2.1-rc.2` | `0.2.0` |
+| Previous recommended RC | `0.2.1-rc.1`, `0.2.0-rc.2`, `0.1.7-rc.2` | `0.2.0` |
+| Legacy RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.2.0` |
+| Retaining an older RC | `0.1.2-rc.1` | `0.2.0` |
+| Developer Alpha testing | `0.1.2-alpha.5` | `0.2.0` |
+| Retaining an older Alpha | `0.1.2-alpha.2` | `0.2.0` |
+| Other installable hosts | At or above `0.1.2-alpha.2` | `0.2.0` |
 
 CI verifies the exact hosts listed above the last row. The installer accepts other hosts at or above the minimum version.
 
@@ -84,11 +84,11 @@ This installs from the default branch and is available immediately after release
 github:NanmiCoder/dsh-agent-teams
 ```
 
-For npm installation, enter the versioned spec `@nanmicoder/dsh-agent-teams@0.1.29`. Desktop's pnpm 11 defaults to a 24-hour minimum release age: for 24 hours after a release, a bare package name or `@latest` installs the previous version even when the preview shows the newest one, and the installation fails if that version is incompatible with your host. An exact version installs immediately. Changing registry mirrors does not remove this policy. GitHub access is required for the Git route; it may contain newer code than npm.
+For npm installation, enter the versioned spec `@nanmicoder/dsh-agent-teams@0.2.0`. Desktop's pnpm 11 defaults to a 24-hour minimum release age: for 24 hours after a release, a bare package name or `@latest` installs the previous version even when the preview shows the newest one, and the installation fails if that version is incompatible with your host. An exact version installs immediately. Changing registry mirrors does not remove this policy. GitHub access is required for the Git route; it may contain newer code than npm.
 
 Install it, then choose **Enable now**. If the host asks for a restart, restart the desktop app. Do not disable compatibility checks or the global release-age policy to install the plugin.
 
-The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and an ordinary standalone CLI cannot manage its desktop profile. The CLI carrier installed by the desktop app can manage that profile in `0.2.1-rc.2`. Check the embedded core against the compatibility list. Harness `0.2.1-rc.2` is now the exact published target; its RC status is unchanged. The earlier source-only `0.2.0` prediction is no longer a support declaration. See the [release migration evidence](./docs/harness-0.2.1-rc.2/README.md).
+The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and an ordinary standalone CLI cannot manage its desktop profile. The CLI carrier installed by the desktop app can manage that profile in `0.2.2-rc.1`. Check the embedded core against the compatibility list. Harness `0.2.2-rc.1` is the exact published target; its RC status is unchanged. See the [release migration evidence](./docs/harness-0.2.1-rc.2/README.md).
 
 ### CLI / Web: 1. Install DeepSeek Harness
 
@@ -101,10 +101,10 @@ The command selects the host's npm `latest`; check `dsh --version` against the s
 
 ### CLI / Web: 2. Install the AgentTeams plugin
 
-Install or upgrade from npm with an exact version (currently `0.1.29`):
+Install or upgrade from npm with an exact version (currently `0.2.0`):
 
 ```sh
-dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.1.29
+dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.2.0
 ```
 
 For a CLI-managed installation, replace `web` with your active CLI profile. **Stop and restart that profile's Harness process, then refresh the browser.** Installing the plugin does not upgrade Harness; the host and plugin have independent `latest` channels.
