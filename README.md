@@ -90,6 +90,27 @@ Install it, then choose **Enable now**. If the host asks for a restart, restart 
 
 The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and an ordinary standalone CLI cannot manage its desktop profile. The CLI carrier installed by the desktop app can manage that profile in `0.2.2-rc.1`. Check the embedded core against the compatibility list. Harness `0.2.2-rc.1` is the exact published target; its RC status is unchanged. See the [release migration evidence](./docs/harness-0.2.1-rc.2/README.md).
 
+### Install from Git
+
+The Git route installs straight from the repository (the default branch, or a pinned tag / branch / commit) and needs network access to GitHub.
+
+**Desktop app:** open **Plugins → Add plugin** and paste the repository URL (or the `github:` shorthand). Append `#<tag|branch|commit>` to pin a revision:
+
+```text
+https://github.com/NanmiCoder/dsh-agent-teams
+github:NanmiCoder/dsh-agent-teams
+github:NanmiCoder/dsh-agent-teams#v0.2.0
+```
+
+**CLI / Web profile:** install with the same spec, then stop and restart that profile's Harness process and refresh the browser:
+
+```sh
+dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
+dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams#v0.2.0   # pin a tag, branch, or commit
+```
+
+The default branch commits the verified `lib/` build outputs, so installation needs no `prepare` hook or build-script approval. To update, run the install command again (optionally with a newer tag), restart the profile, and refresh. For a manually cloned checkout, run `pnpm install --frozen-lockfile` and `pnpm build` after pulling, then restart the Harness process — updating Git alone does not refresh local build output.
+
 ### CLI / Web: 1. Install DeepSeek Harness
 
 ```sh

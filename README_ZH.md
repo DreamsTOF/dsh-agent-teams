@@ -89,6 +89,27 @@ github:NanmiCoder/dsh-agent-teams
 
 桌面端自带 Harness 内核与包管理器，升级全局 CLI 不会升级桌面端；普通独立 CLI 不能管理桌面 profile，桌面端自带的 CLI carrier 在此版本可以管理。当前精确目标是已发布的 `0.2.2-rc.1`，仍属于 RC。详见[迁移验收记录](./docs/harness-0.2.1-rc.2/README.md)。
 
+### 从 Git 安装
+
+Git 方式直接从仓库安装（默认分支，或固定到某个 tag / 分支 / commit），需要能访问 GitHub。
+
+**桌面端：** 打开「插件 → 添加插件」，粘贴仓库地址（或 `github:` 简写）。在末尾追加 `#<tag|分支|commit>` 可固定版本：
+
+```text
+https://github.com/NanmiCoder/dsh-agent-teams
+github:NanmiCoder/dsh-agent-teams
+github:NanmiCoder/dsh-agent-teams#v0.2.0
+```
+
+**CLI / Web profile：** 用同样的地址安装，然后停止并重启该 profile 的 Harness 进程，再刷新浏览器：
+
+```sh
+dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
+dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams#v0.2.0   # 固定 tag、分支或 commit
+```
+
+默认分支已提交经过验证的 `lib/` 构建产物，安装时不需要 `prepare` 钩子或批准构建脚本。更新时再次执行安装命令（可指定更新的 tag），重启 profile 并刷新。手动克隆源码时，拉取后需运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再重启 Harness——只更新 Git 不会刷新本地构建产物。
+
 ### CLI / Web：1. 安装 DeepSeek Harness
 
 ```sh
