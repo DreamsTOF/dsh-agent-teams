@@ -5,6 +5,9 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
