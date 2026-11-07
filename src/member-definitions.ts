@@ -583,3 +583,68 @@ export function resolveDefinition(
     diagnostics,
   }
 }
+
+/** Parse the MCP server name out of a host tool name `mcp__<server>__<tool>`. */
+export function mcpServerOfToolName(name: string): string | undefined {
+  if (!name.startsWith('mcp__')) return undefined
+  const rest = name.slice('mcp__'.length)
+  const separator = rest.indexOf('__')
+  if (separator <= 0) return undefined
+  return rest.slice(0, separator)
+}
+
+/** Distinct mounted MCP servers derivable from visible tool names. */
+export function mountedMcpServerNames(visibleToolNames: readonly string[]): string[] {
+  const servers = new Set<string>()
+  for (const name of visibleToolNames) {
+    const server = mcpServerOfToolName(name)
+    if (server !== undefined) servers.add(server)
+  }
+  return [...servers]
+}
+
+/**
+ * Final tool allow list for a member definition under orthogonal semantics:
+ * `tools` gates the explicit (non-MCP) tools — empty/absent inherits all — and
+ * `mcpServers` opens EVERY tool of each named server (a server with N tools
+ * opens all N) — empty/absent inherits every mounted server. The result is
+ * `tools ∪ (all tools of the selected servers)`, so a definition with 3 tools
+ * plus one 10-tool MCP server grants 13 tools.
+ *
+ * Returns `{ allow: undefined, restricted: false }` when neither allowlist
+ * restricts the member, meaning no tool filter should be installed.
+ */
+export function resolveMemberToolAllow(options: {
+  tools: ResolvedAllowlist
+  mcpServers: ResolvedAllowlist
+  captainVisibleTools: readonly string[]
+  baseAllow?: readonly string[] | undefined
+}): { allow: string[] | undefined; restricted: boolean } {
+  const toolsActive = options.tools.requested !== undefined && options.tools.requested.length > 0 && !options.tools.inherits
+  const mcpActive = options.mcpServers.requested !== undefined && options.mcpServers.requested.length > 0 && !options.mcpServers.inherits
+  const anyRestriction = toolsActive || mcpActive || options.baseAllow !== undefined
+  if (!anyRestriction) return { allow: undefined, restricted: false }
+
+  const nonMcpVisible = options.captainVisibleTools.filter(name => mcpServerOfToolName(name) === undefined)
+  const mcpVisible = options.captainVisibleTools.filter(name => mcpServerOfToolName(name) !== undefined)
+
+  const base = options.baseAllow !== undefined
+    ? [...options.baseAllow]
+    : toolsActive
+      ? [...options.tools.resolved]
+      : nonMcpVisible
+
+  let mcpTools: string[]
+  if (mcpActive) {
+    const servers = new Set(options.mcpServers.resolved.map(name => name.trim().toLowerCase()))
+    mcpTools = mcpVisible.filter((name) => {
+      const server = mcpServerOfToolName(name)
+      return server !== undefined && servers.has(server.toLowerCase())
+    })
+  } else {
+    // `mcpServers` inherits: keep every mounted MCP tool (spec §4.6 default).
+    mcpTools = [...mcpVisible]
+  }
+
+  return { allow: dedupeNames([...base, ...mcpTools]), restricted: true }
+}

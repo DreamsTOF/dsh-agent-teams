@@ -134,3 +134,27 @@ export declare function scanMemberDefinitions(workspace: string, options?: ScanM
  * @param options - optional captain-visible skills and mounted MCP servers.
  */
 export declare function resolveDefinition(definition: MemberDefinition, captainVisibleTools: readonly string[], options?: ResolveDefinitionOptions): ResolvedMemberDefinition;
+/** Parse the MCP server name out of a host tool name `mcp__<server>__<tool>`. */
+export declare function mcpServerOfToolName(name: string): string | undefined;
+/** Distinct mounted MCP servers derivable from visible tool names. */
+export declare function mountedMcpServerNames(visibleToolNames: readonly string[]): string[];
+/**
+ * Final tool allow list for a member definition under orthogonal semantics:
+ * `tools` gates the explicit (non-MCP) tools — empty/absent inherits all — and
+ * `mcpServers` opens EVERY tool of each named server (a server with N tools
+ * opens all N) — empty/absent inherits every mounted server. The result is
+ * `tools ∪ (all tools of the selected servers)`, so a definition with 3 tools
+ * plus one 10-tool MCP server grants 13 tools.
+ *
+ * Returns `{ allow: undefined, restricted: false }` when neither allowlist
+ * restricts the member, meaning no tool filter should be installed.
+ */
+export declare function resolveMemberToolAllow(options: {
+    tools: ResolvedAllowlist;
+    mcpServers: ResolvedAllowlist;
+    captainVisibleTools: readonly string[];
+    baseAllow?: readonly string[] | undefined;
+}): {
+    allow: string[] | undefined;
+    restricted: boolean;
+};

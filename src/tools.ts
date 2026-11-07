@@ -73,7 +73,7 @@ import { readArtifactScope, snapshotWorkspacePaths, workspacePathExists } from '
 import { agentTeamsSource, observedSessionFormatVersion, restrictableToolNames } from './harness-compat.ts'
 import { dedupeToolNames, memberSpawnRelaxableDeny, optionalToolPolicy, requireToolPolicy, resolveMemberToolFilter, type MemberToolFilter, type MemberToolPolicy } from './tool-policies.ts'
 import { buildHandoverPrompt, evaluateQuota, handoverPath, markHandoverWritten, memberTokenUsage, quotaWarningReason, type SessionTokenUsageSource } from './member-quota.ts'
-import { resolveDefinition, scanMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
+import { mcpServerOfToolName, mountedMcpServerNames, resolveDefinition, resolveMemberToolAllow, scanMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
 import type { ContractAmendmentInput } from './state.ts'
 import type { AcceptanceResult, ArtifactDigest, ArtifactSnapshot, CommandResult, ReviewFinding, ReviewVerdict, TaskKind } from './types.ts'
 import {
@@ -397,25 +397,6 @@ function memberQuotaInput(team: TeamState, member: TeamMember): { name: string; 
 /** Evaluate one member against its effective quota, reading live token usage. */
 function memberQuotaEvaluation(ctx: Context, team: TeamState, member: TeamMember): ReturnType<typeof evaluateQuota> {
   return evaluateQuota(memberQuotaInput(team, member), team, memberTokensOf(ctx, member))
-}
-
-/** Parse the MCP server name out of a host tool name `mcp__<server>__<tool>`. */
-function mcpServerOfToolName(name: string): string | undefined {
-  if (!name.startsWith('mcp__')) return undefined
-  const rest = name.slice('mcp__'.length)
-  const separator = rest.indexOf('__')
-  if (separator <= 0) return undefined
-  return rest.slice(0, separator)
-}
-
-/** Distinct mounted MCP servers derivable from the captain's visible tool names. */
-function mountedMcpServerNames(visibleToolNames: readonly string[]): string[] {
-  const servers = new Set<string>()
-  for (const name of visibleToolNames) {
-    const server = mcpServerOfToolName(name)
-    if (server !== undefined) servers.add(server)
-  }
-  return [...servers]
 }
 
 /** Captain-visible skill names for definition skill resolution (undefined when unavailable). */
@@ -1515,56 +1496,49 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           } else throw error
         }
         const policyId = trimmedOptional(args.tool_policy)
-        const definitionToolsRestricted = definition !== undefined && resolvedDefinition !== undefined
-          && definition.tools !== undefined && !resolvedDefinition.tools.inherits
-        const definitionMcpRestricted = definition !== undefined && resolvedDefinition !== undefined
-          && definition.mcpServers !== undefined && definition.mcpServers.length > 0 && !resolvedDefinition.mcpServers.inherits
+        const hasDefinitionAllow = definition !== undefined && resolvedDefinition !== undefined
+          && ((definition.tools !== undefined && definition.tools.length > 0)
+            || (definition.mcpServers !== undefined && definition.mcpServers.length > 0))
         let toolSelection: Pick<TeamMember, 'toolPolicy' | 'toolFilter'> = memberToolSelection(config, captain, policyId)
-        if (definitionToolsRestricted || definitionMcpRestricted) {
-          // R2-003: a selected tool_policy and the definition `tools` allowlist
-          // are a union (any source may keep a tool); R2-001: the definition
-          // `mcpServers` allowlist then intersects the mounted `mcp__<server>__*`
-          // tools. Captain-only tools stay denied and resolveMemberToolFilter
-          // re-adds the four coordination tools; the final set is ≤ captain.
-          let allow: string[] | undefined
+        if (hasDefinitionAllow && resolvedDefinition !== undefined) {
+          // Definition `tools` and `mcpServers` are orthogonal: explicit tools
+          // plus EVERY tool of each selected MCP server (a server with N tools
+          // opens all N), unioned with any tool_policy allow. Captain-only tools
+          // stay denied and resolveMemberToolFilter re-adds the four
+          // coordination tools; the final set never exceeds the captain's.
+          let baseAllow: readonly string[] | undefined
           if (policyId !== undefined && toolSelection.toolFilter !== undefined) {
             if (toolSelection.toolFilter.allow !== undefined) {
-              allow = [...toolSelection.toolFilter.allow]
+              baseAllow = toolSelection.toolFilter.allow
             } else {
               const denied = new Set(toolSelection.toolFilter.deny.map(name => name.toLowerCase()))
-              allow = visibleTools.filter(name => !denied.has(name.toLowerCase()))
+              baseAllow = visibleTools.filter(name => !denied.has(name.toLowerCase()))
             }
           }
-          if (definitionToolsRestricted && resolvedDefinition !== undefined) {
-            allow = allow === undefined
-              ? [...resolvedDefinition.tools.resolved]
-              : dedupeToolNames([...allow, ...resolvedDefinition.tools.resolved])
-          }
-          if (definitionMcpRestricted && resolvedDefinition !== undefined) {
-            const selectedServers = new Set(resolvedDefinition.mcpServers.resolved.map(name => name.toLowerCase()))
-            const nonMcpTools = visibleTools.filter(name => mcpServerOfToolName(name) === undefined)
-            const selectedMcpTools = visibleTools.filter((name) => {
-              const server = mcpServerOfToolName(name)
-              return server !== undefined && selectedServers.has(server.toLowerCase())
-            })
-            allow = allow === undefined
-              ? [...nonMcpTools, ...selectedMcpTools]
-              : dedupeToolNames([...allow, ...selectedMcpTools])
-          }
-          try {
-            toolSelection = {
-              ...toolSelection.toolPolicy === undefined ? {} : { toolPolicy: toolSelection.toolPolicy },
-              toolFilter: resolveMemberToolFilter({ allow: allow ?? [] }, { maxDepth: config.memberMaxDepth, knownTools }),
+          const { allow, restricted } = resolveMemberToolAllow({
+            tools: resolvedDefinition.tools,
+            mcpServers: resolvedDefinition.mcpServers,
+            captainVisibleTools: visibleTools,
+            baseAllow,
+          })
+          if (restricted) {
+            try {
+              toolSelection = {
+                ...toolSelection.toolPolicy === undefined ? {} : { toolPolicy: toolSelection.toolPolicy },
+                toolFilter: resolveMemberToolFilter({ allow: allow ?? [] }, { maxDepth: config.memberMaxDepth, knownTools }),
+              }
+            } catch (error: unknown) {
+              throw new Error(`member definition "${definition?.name ?? definitionName}" tool allowlist cannot be applied: ${error instanceof Error ? error.message : String(error)}`)
             }
-          } catch (error: unknown) {
-            throw new Error(`member definition "${definition?.name ?? definitionName}" tool allowlist cannot be applied: ${error instanceof Error ? error.message : String(error)}`)
           }
         }
         const allowedSkills = definition !== undefined && definition.skills !== undefined && resolvedDefinition !== undefined
           && !resolvedDefinition.skills.inherits
           ? resolvedDefinition.skills.resolved
           : undefined
-        const mcpServers = definitionMcpRestricted && resolvedDefinition !== undefined
+        const mcpServers = definition !== undefined && definition.mcpServers !== undefined
+          && definition.mcpServers.length > 0 && resolvedDefinition !== undefined
+          && !resolvedDefinition.mcpServers.inherits
           ? [...resolvedDefinition.mcpServers.resolved]
           : undefined
         const definedPersona = resolvedDefinition?.persona.trim()
