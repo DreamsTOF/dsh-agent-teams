@@ -21,6 +21,7 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
+import { matchesSectionWhitelist } from './member-prompt.ts'
 
 /** Section-name prefix `mcp-client` uses for one server's instructions. */
 export const MCP_SECTION_PREFIX = 'mcp:'
@@ -97,6 +98,7 @@ export function installMemberMcpInstructionsFilter(
   childCtx: Context,
   agent: Agent,
   allowedServers: readonly string[],
+  whitelist: readonly RegExp[] = [],
 ): () => void {
   const allowed = allowedSet(allowedServers)
   const on = (childCtx as unknown as ChildCtxOnLike).on
@@ -108,6 +110,7 @@ export function installMemberMcpInstructionsFilter(
     const kept: AssembledSectionLike[] = []
     for (const section of sections) {
       const name = section?.name
+      if (typeof name === 'string' && matchesSectionWhitelist(name, whitelist)) { kept.push(section); continue }
       if (typeof name === 'string' && name.startsWith(MCP_SECTION_PREFIX)) {
         if (!allowed.has(name.slice(MCP_SECTION_PREFIX.length).toLowerCase())) continue
         kept.push(section)
@@ -171,8 +174,9 @@ export function installMemberMcpFilter(
   childCtx: Context,
   agent: Agent,
   allowedServers: readonly string[],
+  whitelist: readonly RegExp[] = [],
 ): () => void {
-  const disposeSections = installMemberMcpInstructionsFilter(childCtx, agent, allowedServers)
+  const disposeSections = installMemberMcpInstructionsFilter(childCtx, agent, allowedServers, whitelist)
   const disposeTools = installMemberMcpResourceToolGuard(childCtx, agent, allowedServers)
   return () => { disposeTools(); disposeSections() }
 }

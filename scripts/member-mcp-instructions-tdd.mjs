@@ -15,6 +15,7 @@ import {
   MCP_SECTION_PREFIX,
   MCP_RESOURCE_SECTION,
 } from '../src/member-mcp.ts'
+import { compileSectionWhitelist } from '../src/member-prompt.ts'
 
 const RESOURCE_TOOLS = ['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']
 
@@ -122,4 +123,12 @@ test('a resource tool absent from the registry is skipped', () => {
 test('exposes the section-name constants', () => {
   assert.equal(MCP_SECTION_PREFIX, 'mcp:')
   assert.equal(MCP_RESOURCE_SECTION, 'mcp-resource-servers')
+})
+
+test('a whitelisted mcp section is kept even when the server is not selected', async () => {
+  const f = promptFixture()
+  installMemberMcpInstructionsFilter(f.childCtx, f.agent, ['codegraph'], compileSectionWhitelist(['mcp:anysearch']))
+  const out = await run(f)
+  assert.ok(out.sections.some(section => section.name === 'mcp:anysearch'), 'whitelisted section survives')
+  assert.ok(out.sections.some(section => section.name === 'mcp:codegraph'))
 })

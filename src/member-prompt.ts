@@ -17,6 +17,33 @@ import type { Context } from '@deepseek-ai/cordis'
 /** Section-name prefix every tool-guidance section uses. */
 export const TOOL_SECTION_PREFIX = 'tool:'
 
+/**
+ * Compile name-pattern whitelists into anchored regexes. `*` is a wildcard
+ * (matching any run of characters), so `browser-use:*` becomes
+ * `^(?:browser-use:.*)$` and matches every section starting with
+ * `browser-use:`. Real regex syntax is otherwise preserved. Invalid patterns
+ * are skipped so a typo never aborts a member spawn.
+ */
+export function compileSectionWhitelist(patterns: readonly string[] | undefined): RegExp[] {
+  if (patterns === undefined) return []
+  const compiled: RegExp[] = []
+  for (const pattern of patterns) {
+    const trimmed = pattern.trim()
+    if (trimmed === '') continue
+    try {
+      compiled.push(new RegExp(`^(?:${trimmed.replace(/\*/g, '.*')})$`))
+    } catch {
+      // An invalid pattern is skipped rather than failing the spawn.
+    }
+  }
+  return compiled
+}
+
+/** Whether a section name matches any whitelist pattern. */
+export function matchesSectionWhitelist(name: string, whitelist: readonly RegExp[]): boolean {
+  return whitelist.some(regex => regex.test(name))
+}
+
 /** Minimal structural view of one assembled prompt section. */
 interface AssembledSectionLike {
   readonly name: string
@@ -47,7 +74,7 @@ interface ToolsLookup {
  * @param agent - the member agent the filter belongs to.
  * @returns a disposer that removes the listener.
  */
-export function installMemberToolGuidanceFilter(childCtx: Context, agent: Agent): () => void {
+export function installMemberToolGuidanceFilter(childCtx: Context, agent: Agent, whitelist: readonly RegExp[] = []): () => void {
   const tools = (childCtx as unknown as { tools?: ToolsLookup }).tools
   const get = tools?.get
   const on = (childCtx as unknown as ChildCtxOnLike).on
@@ -58,7 +85,9 @@ export function installMemberToolGuidanceFilter(childCtx: Context, agent: Agent)
     if (!Array.isArray(sections)) return result
     const kept = sections.filter((section) => {
       const name = section?.name
-      if (typeof name !== 'string' || !name.startsWith(TOOL_SECTION_PREFIX)) return true
+      if (typeof name !== 'string') return true
+      if (matchesSectionWhitelist(name, whitelist)) return true
+      if (!name.startsWith(TOOL_SECTION_PREFIX)) return true
       return get.call(tools, name.slice(TOOL_SECTION_PREFIX.length), agent) !== undefined
     })
     return kept.length === sections.length ? result : { ...result, sections: kept }

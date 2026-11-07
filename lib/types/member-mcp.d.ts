@@ -40,7 +40,7 @@ export declare function trimResourceServersText(text: string, allowed: ReadonlyS
  * @param allowedServers - the resolved MCP server allowlist (non-empty).
  * @returns a disposer that removes the listener.
  */
-export declare function installMemberMcpInstructionsFilter(childCtx: Context, agent: Agent, allowedServers: readonly string[]): () => void;
+export declare function installMemberMcpInstructionsFilter(childCtx: Context, agent: Agent, allowedServers: readonly string[], whitelist?: readonly RegExp[]): () => void;
 /**
  * Shadow the shared MCP resource tools in the member scope so their `server`
  * argument is limited to the selected servers. A tool absent from the registry
@@ -55,4 +55,4 @@ export declare function installMemberMcpResourceToolGuard(childCtx: Context, age
  * Install every member-scoped MCP derived-surface guard in one disposer:
  * the instruction/resource-list filter and the resource-tool argument guard.
  */
-export declare function installMemberMcpFilter(childCtx: Context, agent: Agent, allowedServers: readonly string[]): () => void;
+export declare function installMemberMcpFilter(childCtx: Context, agent: Agent, allowedServers: readonly string[], whitelist?: readonly RegExp[]): () => void;

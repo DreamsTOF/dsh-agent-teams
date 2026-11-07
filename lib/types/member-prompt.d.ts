@@ -15,10 +15,20 @@ import type { Context } from '@deepseek-ai/cordis';
 /** Section-name prefix every tool-guidance section uses. */
 export declare const TOOL_SECTION_PREFIX = "tool:";
 /**
+ * Compile name-pattern whitelists into anchored regexes. `*` is a wildcard
+ * (matching any run of characters), so `browser-use:*` becomes
+ * `^(?:browser-use:.*)$` and matches every section starting with
+ * `browser-use:`. Real regex syntax is otherwise preserved. Invalid patterns
+ * are skipped so a typo never aborts a member spawn.
+ */
+export declare function compileSectionWhitelist(patterns: readonly string[] | undefined): RegExp[];
+/** Whether a section name matches any whitelist pattern. */
+export declare function matchesSectionWhitelist(name: string, whitelist: readonly RegExp[]): boolean;
+/**
  * Install a member-scoped `system-prompt/assemble` filter that drops every
  * `tool:<name>` guidance section whose tool is not visible to the member.
  * @param childCtx - the member's child context (scope of the listener).
  * @param agent - the member agent the filter belongs to.
  * @returns a disposer that removes the listener.
  */
-export declare function installMemberToolGuidanceFilter(childCtx: Context, agent: Agent): () => void;
+export declare function installMemberToolGuidanceFilter(childCtx: Context, agent: Agent, whitelist?: readonly RegExp[]): () => void;

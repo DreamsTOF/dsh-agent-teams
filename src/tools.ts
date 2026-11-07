@@ -118,6 +118,8 @@ export interface ToolsConfig {
   memberMaxTasks?: number
   /** Default cumulative token budget for new members (`0` = unlimited). */
   memberMaxContextTokens?: number
+  /** Regex prompt-section name whitelist (see `Config.memberPromptSectionWhitelist`). */
+  memberPromptSectionWhitelist?: string[]
   /** Named team profiles from the active DSH profile. */
   profiles: Record<string, import('./profiles.ts').TeamProfileConfig>
   /** Owner-declared reusable member tool policies, keyed by policy id (#59). */
@@ -2887,7 +2889,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
   // Live-member hydration validates saved filters against registered tools.
   const memberSelections = installMemberSelectionRuntime(ctx, config.stateDir, (workspace, teamId, memberName) => (
     scheduler.kickMember(workspace, teamId, memberName)
-  ))
+  ), config.memberPromptSectionWhitelist)
 
   const runtime: AgentTeamsRuntime = {
     isPendingMember: memberSelections.isPendingMember,

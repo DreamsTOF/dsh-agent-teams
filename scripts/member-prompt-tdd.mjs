@@ -7,7 +7,12 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { installMemberToolGuidanceFilter, TOOL_SECTION_PREFIX } from '../src/member-prompt.ts'
+import {
+  installMemberToolGuidanceFilter,
+  compileSectionWhitelist,
+  matchesSectionWhitelist,
+  TOOL_SECTION_PREFIX,
+} from '../src/member-prompt.ts'
 
 function fixture(visible) {
   const listeners = []
@@ -64,4 +69,24 @@ test('a child context without a tools service installs nothing', () => {
   const dispose = installMemberToolGuidanceFilter(childCtx, { id: 'm' })
   assert.equal(listeners.length, 0)
   dispose()
+})
+
+test('compileSectionWhitelist turns * into a prefix wildcard', () => {
+  const whitelist = compileSectionWhitelist(['browser-use:*'])
+  assert.equal(matchesSectionWhitelist('browser-use:stagehand-native', whitelist), true)
+  assert.equal(matchesSectionWhitelist('browser-use', whitelist), false)
+  assert.equal(matchesSectionWhitelist('computer-use:cua', whitelist), false)
+})
+
+test('an invalid whitelist pattern is skipped, not fatal', () => {
+  const whitelist = compileSectionWhitelist(['[unterminated'])
+  assert.equal(whitelist.length, 0)
+})
+
+test('a whitelisted tool guidance section is kept even when the tool is hidden', async () => {
+  const f = fixture(['read'])
+  installMemberToolGuidanceFilter(f.childCtx, f.agent, compileSectionWhitelist(['tool:pwsh']))
+  const out = await run(f)
+  assert.ok(out.sections.some(section => section.name === 'tool:pwsh'))
+  assert.ok(out.sections.some(section => section.name === 'tool:read'))
 })

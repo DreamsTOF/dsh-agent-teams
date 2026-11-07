@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type SessionFormatBearer, guardSubagentCreation, startMember, usesManagedActivations, guardSubagentDelivery, installContinuableMemberSetup, memberToolFilter, queueMemberPrompt, restrictableToolNames, startMemberWithLenientFilter, steerMemberPrompt, sessionOwnEvents } from './harness-compat.ts'
 import { installMemberSkillFilter } from './member-skills.ts'
 import { installMemberMcpFilter } from './member-mcp.ts'
-import { installMemberToolGuidanceFilter } from './member-prompt.ts'
+import { compileSectionWhitelist, installMemberToolGuidanceFilter } from './member-prompt.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { mailboxPrompt } from './mailbox.ts'
 import { nearestLiveLead } from './lineage.ts'
@@ -652,7 +652,9 @@ export function installMemberSelectionRuntime(
   ctx: Context,
   stateDir: string,
   onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>,
+  promptSectionWhitelist?: readonly string[],
 ): MemberSelectionRuntime {
+  const sectionWhitelist = compileSectionWhitelist(promptSectionWhitelist)
   const pending = new Map<string, MemberLlmSelection>()
   const pendingSetup = new Map<string, NonNullable<TeamMember['runtimeSetup']>>()
   installContinuableMemberSetup(ctx, (childCtx, child) => {
@@ -704,7 +706,7 @@ export function installMemberSelectionRuntime(
     // (`tool:pwsh` etc. are static and would otherwise outlive `tools.restrict`).
     let disposeToolGuidance = (): void => undefined
     try {
-      disposeToolGuidance = installMemberToolGuidanceFilter(childCtx, child)
+      disposeToolGuidance = installMemberToolGuidanceFilter(childCtx, child, sectionWhitelist)
     } catch (error) {
       disposeAdmission()
       throw error
@@ -722,7 +724,7 @@ export function installMemberSelectionRuntime(
     let disposeMcp = (): void => undefined
     if (setup?.allowedMcpServers !== undefined) {
       try {
-        disposeMcp = installMemberMcpFilter(childCtx, child, setup.allowedMcpServers)
+        disposeMcp = installMemberMcpFilter(childCtx, child, setup.allowedMcpServers, sectionWhitelist)
       } catch (error) {
         disposeSkills()
         disposeToolGuidance()
