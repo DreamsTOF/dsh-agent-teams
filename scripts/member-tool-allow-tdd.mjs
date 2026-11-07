@@ -8,7 +8,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mcpServerOfToolName, resolveMemberToolAllow } from '../src/member-definitions.ts'
+import { mcpServerOfToolName, resolveDefinition, resolveMemberToolAllow } from '../src/member-definitions.ts'
 
 const codegraphTools = Array.from({ length: 10 }, (_, i) => `mcp__codegraph__t${i + 1}`)
 const VISIBLE = ['read', 'edit', 'write', 'pwsh', ...codegraphTools, 'mcp__anysearch__search']
@@ -86,4 +86,35 @@ test('mcp tool-name parsing extracts the server segment', () => {
   assert.equal(mcpServerOfToolName('mcp__a__b__c'), 'a')
   assert.equal(mcpServerOfToolName('read'), undefined)
   assert.equal(mcpServerOfToolName('mcp__noseparator'), undefined)
+})
+
+/** Minimal parsed definition; only the fields resolveDefinition reads are set. */
+const DEF = {
+  name: 'd', description: '', model: 'inherit', maxTasks: 5, maxContextTokens: 1,
+  enabled: true, persona: '', source: 'workspace', path: '/x.md', contentHash: 'h', diagnostics: [],
+}
+
+test('an MCP server the host does not have is ignored like an unknown skill', () => {
+  const visible = ['read', 'mcp__codegraph__a', 'mcp__codegraph__b']
+  const resolved = resolveDefinition(
+    { ...DEF, tools: ['read'], mcpServers: ['codegraph', 'ghost'] },
+    visible,
+    { mountedMcpServers: ['codegraph'] },
+  )
+  assert.deepEqual(resolved.mcpServers.resolved, ['codegraph'], 'the mounted server resolves')
+  assert.deepEqual(resolved.mcpServers.unmatched, ['ghost'], 'the phantom server is ignored')
+  assert.equal(resolved.mcpServers.inherits, false)
+  assert.ok(resolved.diagnostics.some(d => d.code === 'mcp-unknown'), 'a diagnostic is recorded, not a fatal error')
+})
+
+test('a wholly unknown mcpServers list falls back like an all-unknown skill list', () => {
+  const visible = ['read', 'mcp__codegraph__a']
+  const resolved = resolveDefinition(
+    { ...DEF, mcpServers: ['ghost'] },
+    visible,
+    { mountedMcpServers: ['codegraph'] },
+  )
+  assert.equal(resolved.mcpServers.inherits, true, 'all-unknown falls back to inherit-all like skills')
+  assert.deepEqual(resolved.mcpServers.unmatched, ['ghost'])
+  assert.ok(resolved.diagnostics.some(d => d.code === 'mcp-fallback'))
 })
