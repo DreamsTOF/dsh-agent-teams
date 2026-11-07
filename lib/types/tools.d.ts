@@ -32,6 +32,10 @@ export interface ToolsConfig {
     memberMaxDepth?: number;
     /** Team size cap (members). */
     maxMembers: number;
+    /** Default completed-task quota for new members (`0` = unlimited). */
+    memberMaxTasks?: number;
+    /** Default cumulative token budget for new members (`0` = unlimited). */
+    memberMaxContextTokens?: number;
     /** Named team profiles from the active DSH profile. */
     profiles: Record<string, import('./profiles.ts').TeamProfileConfig>;
     /** Owner-declared reusable member tool policies, keyed by policy id (#59). */

@@ -71,6 +71,8 @@ import { workspaceAuditor } from './workspace-audit-service.ts'
 import { readArtifactScope, snapshotWorkspacePaths, workspacePathExists } from './artifacts.ts'
 import { agentTeamsSource, observedSessionFormatVersion, restrictableToolNames } from './harness-compat.ts'
 import { memberSpawnRelaxableDeny, optionalToolPolicy, requireToolPolicy, resolveMemberToolFilter, type MemberToolFilter, type MemberToolPolicy } from './tool-policies.ts'
+import { buildHandoverPrompt, evaluateQuota, handoverPath, memberTokenUsage, type SessionTokenUsageSource } from './member-quota.ts'
+import { resolveDefinition, scanMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
 import type { ContractAmendmentInput } from './state.ts'
 import type { AcceptanceResult, ArtifactDigest, ArtifactSnapshot, CommandResult, ReviewFinding, ReviewVerdict, TaskKind } from './types.ts'
 import {
@@ -111,6 +113,10 @@ export interface ToolsConfig {
   memberMaxDepth?: number
   /** Team size cap (members). */
   maxMembers: number
+  /** Default completed-task quota for new members (`0` = unlimited). */
+  memberMaxTasks?: number
+  /** Default cumulative token budget for new members (`0` = unlimited). */
+  memberMaxContextTokens?: number
   /** Named team profiles from the active DSH profile. */
   profiles: Record<string, import('./profiles.ts').TeamProfileConfig>
   /** Owner-declared reusable member tool policies, keyed by policy id (#59). */
@@ -364,6 +370,32 @@ function memberToolSelection(
       knownTools: restrictableToolNames(captain),
     }),
   }
+}
+
+/** Completed-task quota applied to a freshly created team when config leaves it unset. */
+const DEFAULT_MEMBER_MAX_TASKS = 5
+/** Cumulative token budget applied to a freshly created team when config leaves it unset. */
+const DEFAULT_MEMBER_MAX_CONTEXT_TOKENS = 200_000_000
+
+/** Read a member's cumulative four-bucket token usage from its live session (0 when not live). */
+function memberTokensOf(ctx: Context, member: TeamMember): number {
+  if (member.id === '') return 0
+  const session = ctx.agents.get(member.id as SessionId)?.session
+  return session === undefined ? 0 : memberTokenUsage(ctx as unknown as SessionTokenUsageSource, session)
+}
+
+/** Effective quota view of one member: per-member override else the team's new-team default. */
+function memberQuotaInput(team: TeamState, member: TeamMember): { name: string; maxTasks: number | undefined; maxContextTokens: number | undefined } {
+  return {
+    name: member.name,
+    maxTasks: member.maxTasks ?? team.memberMaxTasks,
+    maxContextTokens: member.maxContextTokens ?? team.memberMaxContextTokens,
+  }
+}
+
+/** Evaluate one member against its effective quota, reading live token usage. */
+function memberQuotaEvaluation(ctx: Context, team: TeamState, member: TeamMember): ReturnType<typeof evaluateQuota> {
+  return evaluateQuota(memberQuotaInput(team, member), team, memberTokensOf(ctx, member))
 }
 
 /**
@@ -1052,6 +1084,8 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
               description: args.description,
               captainSessionId: captain.id,
               createdAt: Date.now(),
+              memberMaxTasks: config.memberMaxTasks ?? DEFAULT_MEMBER_MAX_TASKS,
+              memberMaxContextTokens: config.memberMaxContextTokens ?? DEFAULT_MEMBER_MAX_CONTEXT_TOKENS,
               members: [],
               tasks: [],
               taskSeq: 0,
@@ -1314,6 +1348,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
     description: 'Add a member to the team roster. Planning and idle roster rows do not call a model. After approval, the member session starts with its first ready task or explicit message and remains durable for later work.',
     parameters: {
       name: { type: 'string', required: true, description: 'Unique member name inside the team.' },
+      agent: { type: 'string', description: 'Optional member definition name discovered from .agents/agents directories. Selects the definition persona, tools, skills, MCP and quota; explicit fields below override it. Use agent_teams_list_member_definitions to discover names.' },
       role: { type: 'string', description: 'Role of the member (e.g. researcher, engineer, reviewer).' },
       provider: { type: 'string', description: 'Optional LLM provider route. Use only when the user explicitly requests a different provider; requires model. Omit to use the configured member route (memberLlmProvider/memberModel) or the captain\'s current route.' },
       model: { type: 'string', description: 'Optional model override (used verbatim, including any "/" in the id). Omit for the configured memberModel default (paired with memberLlmProvider when set) or the captain\'s current model.' },
@@ -1363,19 +1398,82 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         if (fresh.members.filter((candidate) => candidate.status !== 'removed').length >= config.maxMembers) {
           throw new Error(`team "${fresh.name}" is at its member cap (${config.maxMembers})`)
         }
-        const selection = await resolveMemberLlmSelection(ctx, captain, {
-          provider: trimmedOptional(args.provider),
-          model: trimmedOptional(args.model),
-          defaultModel: config.memberModel,
-          defaultProvider: config.memberLlmProvider,
-          reasoningEffort: trimmedOptional(args.reasoning_effort),
-          fallback: config.fallback,
-        }, exec.signal)
-        const toolSelection = memberToolSelection(config, captain, trimmedOptional(args.tool_policy))
+        // Resolve an optional Markdown member definition snapshot (requirement 2).
+        const definitionName = trimmedOptional(args.agent)
+        let definition: MemberDefinition | undefined
+        let resolvedDefinition: ResolvedMemberDefinition | undefined
+        if (definitionName !== undefined) {
+          const scan = await scanMemberDefinitions(workspace)
+          definition = scan.definitions.find(candidate => candidate.name.toLowerCase() === definitionName.toLowerCase())
+          if (definition === undefined) {
+            const available = scan.definitions.map(candidate => candidate.name).join(', ') || '(none)'
+            throw new Error(`unknown member definition "${definitionName}" (available: ${available})`)
+          }
+          const knownTools = restrictableToolNames(captain)
+          resolvedDefinition = resolveDefinition(definition, knownTools === undefined ? [] : [...knownTools])
+        }
+        const explicitProvider = trimmedOptional(args.provider)
+        const explicitModel = trimmedOptional(args.model)
+        const definitionRoute = definition !== undefined && definition.model !== 'inherit'
+        const requestProvider = explicitProvider ?? (definitionRoute ? resolvedDefinition?.provider : undefined)
+        const requestModel = explicitModel ?? (definitionRoute ? resolvedDefinition?.model : undefined)
+        const requestEffort = trimmedOptional(args.reasoning_effort) ?? (definitionRoute ? resolvedDefinition?.reasoningEffort : undefined)
+        let selection: Awaited<ReturnType<typeof resolveMemberLlmSelection>>
+        try {
+          selection = await resolveMemberLlmSelection(ctx, captain, {
+            provider: requestProvider,
+            model: requestModel,
+            defaultModel: config.memberModel,
+            defaultProvider: config.memberLlmProvider,
+            reasoningEffort: requestEffort,
+            fallback: config.fallback,
+          }, exec.signal)
+        } catch (error: unknown) {
+          // A definition's explicit model that no provider serves silently
+          // falls back to the captain route (spec 4.3); a route the caller
+          // named explicitly stays a hard error.
+          if (definitionRoute && explicitProvider === undefined && explicitModel === undefined) {
+            selection = await resolveMemberLlmSelection(ctx, captain, {
+              defaultModel: config.memberModel,
+              defaultProvider: config.memberLlmProvider,
+              reasoningEffort: trimmedOptional(args.reasoning_effort),
+              fallback: config.fallback,
+            }, exec.signal)
+          } else throw error
+        }
+        const policyId = trimmedOptional(args.tool_policy)
+        let toolSelection: Pick<TeamMember, 'toolPolicy' | 'toolFilter'> = memberToolSelection(config, captain, policyId)
+        if (definition !== undefined && policyId === undefined && resolvedDefinition !== undefined
+          && definition.tools !== undefined && !resolvedDefinition.tools.inherits) {
+          try {
+            toolSelection = {
+              toolFilter: resolveMemberToolFilter({ allow: resolvedDefinition.tools.resolved }, {
+                maxDepth: config.memberMaxDepth,
+                knownTools: restrictableToolNames(captain),
+              }),
+            }
+          } catch (error: unknown) {
+            throw new Error(`member definition "${definition.name}" tool allowlist cannot be applied: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        const allowedSkills = definition !== undefined && definition.skills !== undefined && resolvedDefinition !== undefined
+          && !resolvedDefinition.skills.inherits
+          ? resolvedDefinition.skills.resolved
+          : undefined
+        const definedPersona = resolvedDefinition?.persona.trim()
         const member: TeamMember = {
           id: '',
           name: memberName,
           role: args.role,
+          ...(definition === undefined || resolvedDefinition === undefined ? {} : {
+            definitionName: definition.name,
+            sourcePath: definition.path,
+            contentHash: definition.contentHash,
+            ...(definedPersona === undefined || definedPersona === '' ? {} : { definitionPersona: definedPersona }),
+            maxTasks: resolvedDefinition.maxTasks,
+            maxContextTokens: resolvedDefinition.maxContextTokens,
+            ...(allowedSkills === undefined ? {} : { allowedSkills }),
+          }),
           provider: selection.provider,
           model: selection.model,
           reasoningEffort: selection.reasoningEffort,
@@ -1410,6 +1508,67 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       await scheduler.kickMember(workspace, team.id, created.member_name, await liveLeadAnchorAgent(ctx, team, captain))
       const latest = (await readTeam(stateRoot, team.id))?.members.find(member => member.name === created.member_name)
       return latest === undefined ? created : { ...created, member_id: latest.id, status: latest.status }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'agent_teams_list_member_definitions',
+    description: 'Read-only: list Markdown member definitions from <workspace>/.agents/agents, ~/.dsh/agents and ~/.agents/agents (highest priority wins). Returns each definition\'s resolved tools/skills/MCP allowlists, model route, quota and diagnostics. Use before agent_teams_add_member({agent}).',
+    parameters: {},
+    output: {
+      schema: { type: 'object', additionalProperties: true, properties: {} },
+      render: (_args, value) => {
+        const definitions = (value as unknown as { definitions?: Array<{ name: string; description?: string; source?: string }> }).definitions ?? []
+        return [{
+          type: 'text',
+          text: definitions.length === 0
+            ? 'No member definitions found.'
+            : `Member definitions (${definitions.length}):\n${definitions.map(item => `- ${item.name} [${item.source ?? '?'}]${item.description === undefined || item.description === '' ? '' : `: ${item.description}`}`).join('\n')}`,
+        }]
+      },
+    },
+    async execute(_args, exec) {
+      const captain = requireCaptain(exec)
+      const workspace = workspaceOf(captain)
+      const scan = await scanMemberDefinitions(workspace)
+      const known = restrictableToolNames(captain)
+      const visibleTools = known === undefined ? [] : [...known]
+      const definitions = scan.definitions.map((definition) => {
+        const resolved = resolveDefinition(definition, visibleTools)
+        return {
+          name: resolved.name,
+          description: resolved.description,
+          source: resolved.source,
+          path: resolved.path,
+          enabled: resolved.enabled,
+          model: definition.model,
+          provider: resolved.provider ?? '',
+          reasoning_effort: resolved.reasoningEffort ?? '',
+          model_source: definition.model === 'inherit' ? 'inherit' : 'definition',
+          tools: {
+            requested: resolved.tools.requested ?? [],
+            resolved: resolved.tools.resolved,
+            unmatched: resolved.tools.unmatched,
+            inherits: resolved.tools.inherits,
+          },
+          skills: {
+            requested: resolved.skills.requested ?? [],
+            resolved: resolved.skills.resolved,
+            unmatched: resolved.skills.unmatched,
+            inherits: resolved.skills.inherits,
+          },
+          mcp_servers: {
+            requested: resolved.mcpServers.requested ?? [],
+            resolved: resolved.mcpServers.resolved,
+            unmatched: resolved.mcpServers.unmatched,
+            inherits: resolved.mcpServers.inherits,
+          },
+          max_tasks: resolved.maxTasks,
+          max_context_tokens: resolved.maxContextTokens,
+          diagnostics: resolved.diagnostics,
+        }
+      })
+      return { definitions, diagnostics: scan.diagnostics } as unknown as Record<string, JsonValue>
     },
   }))
 
@@ -1555,6 +1714,13 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           resumeReason: input.resumeReason,
         })
         if (!gate.ok) throw new Error(gate.error ?? 'create_task rejected by quality gates')
+        const assignedName = typeof args.assignee === 'string' ? args.assignee.trim() : ''
+        if (assignedName !== '') {
+          const assignedMember = fresh.members.find(candidate => candidate.name === assignedName && candidate.status !== 'removed')
+          if (assignedMember?.status === 'exhausted') {
+            throw new Error(`member "${assignedMember.name}" is exhausted and cannot be assigned new tasks; choose another member or remove it first`)
+          }
+        }
         if (fresh.halted === true) {
           const resumed = resumeTeamState(fresh, args.resumeReason ?? '')
           if (resumed.status !== 'resumed' || resumed.team === undefined) {
@@ -1674,6 +1840,19 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           return { previousAssignee: previousMember.name, previousMember: { ...previousMember }, handoffId: task.handoffId }
         }
         const targetMember = target === CAPTAIN_KEY ? undefined : requireMember(fresh, target)
+        // Quota policy: never hand new work to an exhausted member.
+        if (targetMember !== undefined) {
+          if (targetMember.status === 'exhausted') {
+            throw new Error(`member "${targetMember.name}" is exhausted and cannot receive new tasks; remove it or pick another member`)
+          }
+          const quota = memberQuotaEvaluation(ctx, fresh, targetMember)
+          if (quota.exhausted) {
+            targetMember.status = 'exhausted'
+            targetMember.handoverPending = true
+            await writeTeam(stateRoot, fresh)
+            throw new Error(`member "${targetMember.name}" reached its quota (${quota.reason ?? 'limit reached'}); it is now exhausted and cannot receive new tasks`)
+          }
+        }
         if (target === CAPTAIN_KEY) {
           const busy = captainOpenTask(fresh, task.id)
           if (busy !== undefined) {
@@ -1835,6 +2014,22 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
             ...task.attemptId === undefined ? {} : { attempt_id: task.attemptId },
           }
         }
+        // Quota policy: an exhausted member may not take a fresh task/attempt.
+        if (identity.kind === 'member') {
+          const claimer = fresh.members.find(candidate => candidate.name === identity.name)
+          if (claimer !== undefined) {
+            if (claimer.status === 'exhausted') {
+              throw new Error(`member "${claimer.name}" is exhausted and cannot claim new tasks`)
+            }
+            const quota = memberQuotaEvaluation(ctx, fresh, claimer)
+            if (quota.exhausted) {
+              claimer.status = 'exhausted'
+              claimer.handoverPending = true
+              await writeTeam(stateRoot, fresh)
+              throw new Error(`member "${claimer.name}" reached its quota (${quota.reason ?? 'limit reached'}); it is now exhausted and cannot claim new tasks`)
+            }
+          }
+        }
         const pending = unsatisfiedDependencies(fresh.tasks, task.dependencies)
         if (pending.length > 0) {
           throw new Error(`task ${task.id} is blocked by unfinished dependencies: ${pending.join(', ')} — complete them first`)
@@ -1961,6 +2156,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       const stateRoot = stateRootOf(workspace, config)
       const team = await requireParticipantTeam(ctx, workspace, config, caller)
       let followUpMessage: import('./types.ts').TeamMessage | undefined
+      let handoverTarget: string | undefined
       const updated = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
         const { team: fresh, identity } = await requireFreshParticipant(ctx, stateRoot, team.id, caller.id)
         const task = requireTask(fresh, args.task_id)
@@ -2052,8 +2248,31 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
             `Quality-gate loop escalated after ${task.id} (${task.kind ?? 'review'} verdict=${task.verdict}). Automatic repair/review stopped.${followUp.reason === undefined ? '' : ` Reason: ${followUp.reason}.`}${followUp.excludedFindings === undefined ? '' : ` Findings left for the user (default-excluded paths, not a member's to edit): ${followUp.excludedFindings.join(', ')}.`}`,
           ))
         }
+        // Quota policy: completing a task may bring the member to its quota.
+        // It keeps the completed task; it is marked exhausted and handed off.
+        let quotaHandover: { member: TeamMember; path: string; reason: string } | undefined
+        if (identity.kind === 'member' && task.status === 'completed') {
+          const completer = fresh.members.find(candidate => candidate.name === identity.name)
+          if (completer !== undefined && completer.status !== 'exhausted') {
+            const quota = memberQuotaEvaluation(ctx, fresh, completer)
+            if (quota.exhausted) {
+              completer.status = 'exhausted'
+              completer.handoverPending = true
+              quotaHandover = {
+                member: completer,
+                path: handoverPath(workspace, config.stateDir, fresh.id, completer.name),
+                reason: quota.reason ?? 'quota reached',
+              }
+            }
+          }
+        }
         await writeTeam(stateRoot, fresh)
         if (followUpMessage !== undefined) await appendMailbox(stateRoot, fresh.id, CAPTAIN_KEY, followUpMessage)
+        if (quotaHandover !== undefined) {
+          handoverTarget = quotaHandover.member.name
+          await appendMailbox(stateRoot, fresh.id, CAPTAIN_KEY, createMessage(quotaHandover.member.name, CAPTAIN_KEY, `Member "${quotaHandover.member.name}" reached its quota (${quotaHandover.reason}) and is now exhausted. It has been asked to write a handover document at ${quotaHandover.path}. Reassign remaining work to another member or add a replacement.`))
+          await appendMailbox(stateRoot, fresh.id, quotaHandover.member.name, createMessage(CAPTAIN_KEY, quotaHandover.member.name, buildHandoverPrompt({ member: quotaHandover.member.name, path: quotaHandover.path })))
+        }
         appendTeamEvent(ctx, captainSessionOf(ctx, fresh.captainSessionId, caller.session), 'agent-teams/task-updated', {
           teamId: fresh.id,
           taskId: task.id,
@@ -2090,6 +2309,14 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         }
       }
       await scheduler.kickTeam(workspace, team.id, await liveLeadAnchorAgent(ctx, team, caller))
+      if (handoverTarget !== undefined) {
+        // kickTeam skips exhausted members; deliver the handover mail directly.
+        try {
+          await scheduler.kickMember(workspace, team.id, handoverTarget, await liveLeadAnchorAgent(ctx, team, caller))
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent-teams: handover mail delivery failed for ${handoverTarget}: ${String(error)}`)
+        }
+      }
       return updated
     },
   }))
@@ -2357,6 +2584,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         return { team, identity, captainInbox, ownInbox, memberInboxes, mailboxWarnings, mailboxWarningCount }
       })
       const activity = memberActivity(ctx, team.members.map((member) => member.id))
+      const quotaByMember = new Map(team.members.map(member => [member.name, memberQuotaEvaluation(ctx, team, member)] as const))
       const audit = await auditor.audit(workspace, team, stateRoot)
       const members = team.members
         .filter((member) => member.status !== 'removed')
@@ -2367,6 +2595,15 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           model: member.model ?? '',
           reasoning_effort: member.reasoningEffort ?? '',
           tool_policy: member.toolPolicy ?? '',
+          completed_tasks: quotaByMember.get(member.name)?.details.completedTasks ?? 0,
+          max_tasks: quotaByMember.get(member.name)?.details.maxTasks ?? null,
+          tokens: quotaByMember.get(member.name)?.details.tokens ?? 0,
+          max_context_tokens: quotaByMember.get(member.name)?.details.maxContextTokens ?? null,
+          exhausted: quotaByMember.get(member.name)?.exhausted ?? false,
+          ...(quotaByMember.get(member.name)?.reason === undefined ? {} : { exhausted_reason: quotaByMember.get(member.name)!.reason }),
+          ...member.handoverPending === true
+            ? { handover_pending: true, handover_path: handoverPath(workspace, config.stateDir, team.id, member.name) }
+            : {},
           status: member.status,
           activity: member.id !== '' ? (activity.get(member.id) ?? 'unknown') : 'unspawned',
           ...member.spawnError === undefined ? {} : { spawn_error: member.spawnError },
@@ -2638,6 +2875,8 @@ async function initializeProfileTeam(input: {
     ...profile.reviewPolicy === undefined ? {} : { reviewPolicy: profile.reviewPolicy },
     captainSessionId: input.captain.id,
     createdAt: now,
+    memberMaxTasks: input.config.memberMaxTasks ?? DEFAULT_MEMBER_MAX_TASKS,
+    memberMaxContextTokens: input.config.memberMaxContextTokens ?? DEFAULT_MEMBER_MAX_CONTEXT_TOKENS,
     ...input.staged ? { phase: 'staged' as const, planReviewState: 'awaiting_review' as const } : {},
     members: profile.members.map((template, index) => {
       const selection = selections[index]!

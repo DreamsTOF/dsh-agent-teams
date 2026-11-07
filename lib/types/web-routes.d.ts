@@ -13,6 +13,22 @@ export declare class RequestBodyError extends Error {
     readonly status: 400 | 413;
     constructor(message: string, status: 400 | 413);
 }
+/** Parsed body of a member runtime-model switch request. */
+export interface MemberModelSwitchRequest {
+    sessionId: string;
+    teamId: string;
+    memberName: string;
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+}
+/**
+ * Validate the browser member-model switch body. Returns a precise error string
+ * instead of throwing so the route can answer 400 without leaking internals.
+ */
+export declare function parseMemberModelSwitchRequest(payload: Record<string, unknown>): MemberModelSwitchRequest | {
+    error: string;
+};
 /** Bound memory while draining oversized requests so the route can return 413. */
 export declare function readJsonRequest(req: IncomingMessage, maxBytes?: number): Promise<Record<string, unknown>>;
 /** Revalidate a current JSON representation across both identity and gzip delivery. */

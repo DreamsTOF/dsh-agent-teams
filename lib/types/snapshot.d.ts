@@ -19,6 +19,18 @@ export interface TeamActivityMember {
     readonly provider: string;
     readonly model: string;
     readonly reasoningEffort: string;
+    /** Completed tasks attributed to this member (quota numerator). */
+    readonly completedTasks: number;
+    /** Effective completed-task quota, or null when unlimited. */
+    readonly maxTasks: number | null;
+    /** Cumulative four-bucket token usage, or null when not measurable. */
+    readonly tokens: number | null;
+    /** Effective cumulative token budget, or null when unlimited. */
+    readonly maxContextTokens: number | null;
+    /** Why the member is exhausted, when it is. */
+    readonly exhaustedReason?: string;
+    /** True while a quota-triggered handover is outstanding. */
+    readonly handoverPending?: boolean;
     readonly executionPrompt?: string;
     readonly status: MemberStatus;
     readonly activity: 'working' | 'idle' | 'unknown';

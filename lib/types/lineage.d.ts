@@ -1,22 +1,17 @@
 /**
- * Durable session lineage for team identity.
+ * Durable session lineage for team identity (ADR-0003).
  *
- * Forking is a first-class DSH operation: the fork receives a new session id
- * and records the source session as `header.parentSession`. Team identity must
- * therefore be resolved along that chain, or a captain that continues in its
- * own fork stops matching the team it leads (#176). Membership keeps its exact
- * id match: a member is a subagent child of its captain, so its parent chain
- * also contains the captain and must never be read as lead identity. Only a
- * top-level conversation may inherit lead identity from an ancestor.
+ * DSH 0.2.2 forks do not record `header.parentSession`, and a fork is an
+ * independent root conversation: it never inherits the lead of the team its
+ * source session led. Team identity is therefore the exact recorded
+ * `captainSessionId`; the `parentSession` chain is never read as a lead
+ * relationship. `isTopLevelSession` only recognises an ordinary fork (seeded,
+ * non-subagent, delegation depth zero) and never grants team membership.
  *
- * Authorization paths resolve the chain durably: a hop is read from the live
- * session when that session is resident and from the persistence service's
- * stored header otherwise, so a fork still resolves its team while an
- * intermediate session (or the original captain) is not loaded. The
- * synchronous prompt-assembly path uses the calling session's own durable
- * header plus resolvable live hops; failing to resolve there only leaves the
- * default captain-side prompt in place — every tool re-authorizes
- * asynchronously.
+ * A member is a subagent child of its captain, so a member session id is
+ * excluded from lead identity outright: membership revocation must never hand
+ * a member session the captain's authority.
+ *
  * @module dsh-agent-teams/lineage
  */
 import type { Context } from '@deepseek-ai/cordis';
@@ -28,14 +23,14 @@ export declare const LINEAGE_MAX_DEPTH = 32;
 export interface LeadIdentity {
     /** The calling session id. */
     readonly sessionId: string;
-    /** Ancestor session ids reachable through `header.parentSession`, nearest first. */
+    /** Ancestor session ids reachable through `header.parentSession`, nearest first. Diagnostic only: team identity is exact captainSessionId (ADR-0003). */
     readonly ancestry: readonly string[];
-    /** Whether this session may inherit lead identity from an ancestor at all. */
+    /** Whether this session is an ordinary top-level fork. Diagnostic only; never grants team lead identity (ADR-0003). */
     readonly inheritsLead: boolean;
 }
 /** The live session for one id: resident agent first, then the live session store. */
 export declare function liveSession(ctx: Context, id: string): Session | undefined;
-/** Whether one session is a top-level conversation rather than a subagent child. */
+/** Whether one session is an ordinary top-level fork: seeded, not a subagent child, and at delegation depth zero. Identifies ordinary forks only; team identity never derives from it (ADR-0003). */
 export declare function isTopLevelSession(session: Session): boolean;
 /**
  * Durable ancestry of one session, nearest first. The calling session's own
@@ -64,24 +59,26 @@ export interface LeadScopedTeam {
         readonly status?: string;
     }[];
 }
-/** Whether one identity leads (or inherits the lead of) a team's recorded captain. */
+/**
+ * Whether one identity leads a team: only the exact recorded captain session
+ * leads it. A fork is an independent root and never inherits lead identity, so
+ * `lead.ancestry` and `lead.inheritsLead` are deliberately ignored (ADR-0003).
+ */
 export declare function teamLeadMatch(team: LeadScopedTeam, lead: LeadIdentity): boolean;
 /**
- * Whether one live session id leads a team: the recorded captain itself, or a
- * top-level fork descendant of it. Members never match through their parent
- * chain, and a member's fork does not match either.
+ * Whether one live session id leads a team: exactly the recorded captain, with
+ * members excluded. A fork never inherits lead identity (ADR-0003).
  */
 export declare function sessionLeadsTeam(ctx: Context, team: LeadScopedTeam, sessionId: string): boolean;
-/** Durable {@link sessionLeadsTeam}: resolves the caller's chain through stored headers. */
+/** Durable {@link sessionLeadsTeam}: exact captain id, members excluded (ADR-0003). */
 export declare function sessionLeadsTeamAsync(ctx: Context, team: LeadScopedTeam, sessionId: string): Promise<boolean>;
 /**
- * Nearest live lead session of a team: the recorded captain while it is
- * resident, otherwise the closest live fork descendant of it. Captain-directed
- * reports use this so a human working in a fork still receives them, while the
- * durable mail record stays addressed to the recorded captain.
+ * Nearest live lead session of a team: the recorded captain, and only while it
+ * is resident. A fork is an independent root and never receives
+ * captain-directed reports (ADR-0003), so there is no fork fallback.
  * @param ctx - the plugin context (injects `agents`).
  * @param team - current team state.
- * @returns the live lead agent, or undefined when no lead session is resident.
+ * @returns the live captain agent, or undefined when it is not resident.
  */
 export declare function nearestLiveLead(ctx: Context, team: LeadScopedTeam, live?: readonly Agent[]): Agent | undefined;
 /**

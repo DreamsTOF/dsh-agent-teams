@@ -21,6 +21,7 @@ import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type SessionFormatBearer, guardSubagentCreation, startMember, usesManagedActivations, guardSubagentDelivery, installContinuableMemberSetup, memberToolFilter, queueMemberPrompt, restrictableToolNames, startMemberWithLenientFilter, steerMemberPrompt, sessionOwnEvents } from './harness-compat.ts'
+import { installMemberSkillFilter } from './member-skills.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { mailboxPrompt } from './mailbox.ts'
 import { nearestLiveLead } from './lineage.ts'
@@ -694,6 +695,18 @@ export function installMemberSelectionRuntime(
       disposeAdmission()
       throw new Error('agent-teams: saved member runtime setup is missing; refusing an unrestricted resume')
     }
+    // Member-scope skill visibility: only a member created from a definition
+    // with a concrete skill allowlist needs the overlay. `handoff` is always
+    // re-added by the overlay itself.
+    let disposeSkills = (): void => undefined
+    if (setup?.allowedSkills !== undefined) {
+      try {
+        disposeSkills = installMemberSkillFilter(childCtx, child, setup.allowedSkills)
+      } catch (error) {
+        disposeAdmission()
+        throw error
+      }
+    }
     let disposeSetup = (): void => undefined
     if (usesManagedActivations(ctx.subagents) && setup !== undefined) {
       try {
@@ -708,14 +721,19 @@ export function installMemberSelectionRuntime(
         } catch (error) { stopFilter(); throw error }
       } catch (error) { disposeAdmission(); throw error }
     }
-    const cleanupAdmission = (): void => { disposeSetup(); disposeAdmission() }
+    const cleanupAdmission = (): void => { disposeSkills(); disposeSetup(); disposeAdmission() }
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)
       if (team?.captainSessionId !== parentSessionId) return cleanupAdmission
       const durableMember = team.members.find(member => member.name === memberName)
       selection = selectionFromMember(durableMember)
-      if (selection !== undefined && (descriptor.agentProvider !== durableMember?.provider || descriptor.agentModel !== durableMember?.model)) {
+      // Compare the immutable descriptor route against the first-spawn snapshot
+      // (`spawn*`), falling back to the current route for legacy members that
+      // predate the snapshot. The user's current route is applied below.
+      const expectedProvider = durableMember?.spawnProvider ?? durableMember?.provider
+      const expectedModel = durableMember?.spawnModel ?? durableMember?.model
+      if (selection !== undefined && (descriptor.agentProvider !== expectedProvider || descriptor.agentModel !== expectedModel)) {
         throw new Error(
           `agent-teams: saved model route for member "${memberName}" does not match its subagent descriptor`,
         )
@@ -922,7 +940,10 @@ export function memberPersona(team: TeamState, member: TeamMember, stateDir: str
   const goal = team.description?.trim() || '(not provided)'
   const injectedPrompt = member.executionPrompt?.trim() || executionPrompt?.trim()
   const protocol = truncatedPersonaProtocol(team.profile?.protocol)
-  return `You are ${member.name}, a member of the multi-agent team "${team.name}" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member${member.role ? ` with the role: ${member.role}` : ''}.
+  const definitionPersona = member.definitionPersona?.trim()
+  return `You are ${member.name}, a member of the multi-agent team "${team.name}" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member${member.role ? ` with the role: ${member.role}` : ''}.${definitionPersona === undefined || definitionPersona === '' ? '' : `
+
+${definitionPersona}`}
 
 Team context:
 - Team id: ${team.id}
@@ -1032,7 +1053,11 @@ export async function spawnMember(
   const start = await startMemberWithLenientFilter(
     toolFilter => {
       acceptedFilter = toolFilter
-      const setup = { persona: memberPersona(team, member, stateDir, config.executionPrompt), toolFilter }
+      const setup = {
+        persona: memberPersona(team, member, stateDir, config.executionPrompt),
+        toolFilter,
+        ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+      }
       return selections.withPending(captain.id, label, llmSelection, () => startMember(ctx.subagents, {
         provider: config.provider,
         label,
@@ -1065,7 +1090,11 @@ export async function spawnMember(
   )
   member.id = start.childId
   if (usesManagedActivations(ctx.subagents)) {
-    member.runtimeSetup = { persona: memberPersona(team, member, stateDir, config.executionPrompt), toolFilter: acceptedFilter }
+    member.runtimeSetup = {
+      persona: memberPersona(team, member, stateDir, config.executionPrompt),
+      toolFilter: acceptedFilter,
+      ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+    }
   }
   // Only a policy member carries a persisted filter snapshot; a member without
   // a policy keeps its public record shape. Legacy descriptors or runtimeSetup

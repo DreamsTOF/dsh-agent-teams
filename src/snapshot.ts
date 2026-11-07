@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { memberActivity } from './members.ts'
+import { evaluateQuota, memberTokenUsage, type SessionTokenUsageSource } from './member-quota.ts'
 import { canDeclareDelivery, describeQualityLoop, verdictAuditNotes } from './quality-gates.ts'
 import { workspaceAuditor } from './workspace-audit-service.ts'
 import {
@@ -31,6 +32,18 @@ export interface TeamActivityMember {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort: string
+  /** Completed tasks attributed to this member (quota numerator). */
+  readonly completedTasks: number
+  /** Effective completed-task quota, or null when unlimited. */
+  readonly maxTasks: number | null
+  /** Cumulative four-bucket token usage, or null when not measurable. */
+  readonly tokens: number | null
+  /** Effective cumulative token budget, or null when unlimited. */
+  readonly maxContextTokens: number | null
+  /** Why the member is exhausted, when it is. */
+  readonly exhaustedReason?: string
+  /** True while a quota-triggered handover is outstanding. */
+  readonly handoverPending?: boolean
   readonly executionPrompt?: string
   readonly status: MemberStatus
   readonly activity: 'working' | 'idle' | 'unknown'
@@ -159,6 +172,15 @@ export async function assembleTeamSnapshot(
   const members: TeamActivityMember[] = roster.map((member) => {
     const owned = tasks.filter((task) => task.assignee === member.name)
     const done = owned.filter((task) => task.status === 'completed').length
+    const liveSession = member.id === ''
+      ? undefined
+      : ctx.agents.get(member.id as import('@deepseek-ai/dsh-session').SessionId)?.session
+    const tokens = liveSession === undefined ? 0 : memberTokenUsage(ctx as unknown as SessionTokenUsageSource, liveSession)
+    const quota = evaluateQuota({
+      name: member.name,
+      maxTasks: member.maxTasks ?? state.memberMaxTasks,
+      maxContextTokens: member.maxContextTokens ?? state.memberMaxContextTokens,
+    }, state, tokens)
     return {
       id: member.id,
       name: member.name,
@@ -166,6 +188,12 @@ export async function assembleTeamSnapshot(
       provider: member.provider?.trim() ?? '',
       model: member.model?.trim() ?? '',
       reasoningEffort: member.reasoningEffort?.trim() ?? '',
+      completedTasks: quota.details.completedTasks,
+      maxTasks: quota.details.maxTasks,
+      tokens: quota.details.tokens,
+      maxContextTokens: quota.details.maxContextTokens,
+      ...quota.reason === undefined ? {} : { exhaustedReason: quota.reason },
+      ...member.handoverPending === true ? { handoverPending: true } : {},
       ...includePlanText ? { executionPrompt: member.executionPrompt ?? '' } : {},
       status: member.status,
       activity: options.historic === true

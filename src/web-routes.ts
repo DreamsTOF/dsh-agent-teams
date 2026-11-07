@@ -19,6 +19,43 @@ export class RequestBodyError extends Error {
   }
 }
 
+/** Parsed body of a member runtime-model switch request. */
+export interface MemberModelSwitchRequest {
+  sessionId: string
+  teamId: string
+  memberName: string
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+/**
+ * Validate the browser member-model switch body. Returns a precise error string
+ * instead of throwing so the route can answer 400 without leaking internals.
+ */
+export function parseMemberModelSwitchRequest(
+  payload: Record<string, unknown>,
+): MemberModelSwitchRequest | { error: string } {
+  const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
+  const sessionId = text(payload['sessionId'])
+  const teamId = text(payload['teamId'])
+  const memberName = text(payload['memberName'])
+  const provider = text(payload['provider'])
+  const model = text(payload['model'])
+  if (sessionId === '' || teamId === '' || memberName === '' || provider === '' || model === '') {
+    return { error: 'sessionId, teamId, memberName, provider and model are required' }
+  }
+  const reasoningEffort = text(payload['reasoningEffort'])
+  return {
+    sessionId,
+    teamId,
+    memberName,
+    provider,
+    model,
+    ...reasoningEffort === '' ? {} : { reasoningEffort },
+  }
+}
+
 /** Bound memory while draining oversized requests so the route can return 413. */
 export async function readJsonRequest(req: IncomingMessage, maxBytes = 1_000_000): Promise<Record<string, unknown>> {
   const raw = await new Promise<string>((resolve, reject) => {

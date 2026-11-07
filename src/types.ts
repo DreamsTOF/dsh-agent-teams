@@ -272,6 +272,10 @@ export interface TeamMember {
   sourcePath?: string
   /** Content hash of the member definition snapshot written at creation, when any. */
   contentHash?: string
+  /** Snapshot of the member definition's Markdown body (its domain persona), when any. */
+  definitionPersona?: string
+  /** Resolved skill allowlist snapshot; absent means the member inherits every visible skill. */
+  allowedSkills?: string[]
   /** Resolved LLM provider route captured when this member was created. */
   provider?: string
   /** Resolved model captured when this member was created. */
@@ -311,7 +315,7 @@ export interface TeamMember {
    */
   toolFilter?: MemberToolFilter
   /** Exact child-scoped setup restored on hosts with managed activations. */
-  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter }
+  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter; allowedSkills?: string[] }
   joinedAt: number
   status: MemberStatus
   /** Execution admission is closed while a failed/pending handoff is drained. */

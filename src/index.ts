@@ -38,7 +38,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { collectArchivedTeamsActivity, collectTeamsActivity } from './snapshot.ts'
-import { findTeamByCaptain } from './state.ts'
+import { findTeamByCaptain, readTeam, withTeamLock, writeTeam } from './state.ts'
+import { switchMemberModel } from './member-model-switch.ts'
+import { handoffSkillProvider } from './member-skills.ts'
 import { leadIdentityOfAsync } from './lineage.ts'
 import { formatProfilesForPrompt, type TeamProfileConfig } from './profiles.ts'
 import { parseToolPolicies, type MemberToolPolicy } from './tool-policies.ts'
@@ -46,7 +48,7 @@ import { installTeamCapabilities } from './capabilities.ts'
 import { agentTeamsSource, observedSessionFormatVersion } from './harness-compat.ts'
 import { TEAM_TOOL_NAMES } from './tool-names.ts'
 
-import { authenticatedWebRoutes, readJsonRequest, RequestBodyError, writeJsonWithEtag, type BrowserRequestGate, type WebRouteHost } from './web-routes.ts'
+import { authenticatedWebRoutes, parseMemberModelSwitchRequest, readJsonRequest, RequestBodyError, writeJsonWithEtag, type BrowserRequestGate, type WebRouteHost } from './web-routes.ts'
 
 /** Web-server service key candidates, newest first. */
 const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
@@ -207,6 +209,8 @@ export function apply(ctx: Context, config: Config): void {
     fallback: config.fallback,
     memberMaxDepth: config.memberMaxDepth ?? 0,
     maxMembers: config.maxMembers ?? 8,
+    memberMaxTasks: config.memberMaxTasks,
+    memberMaxContextTokens: config.memberMaxContextTokens,
     profiles: config.profiles ?? {},
     // Owner configuration is validated once, at mount: an empty or malformed
     // policy must never reach a member creation path.
@@ -228,6 +232,15 @@ export function apply(ctx: Context, config: Config): void {
     // installTeamCapabilities snapshots this once; no business state rewrites it.
     captainPrompt: () => usageSectionText(TEAM_TOOL_NAMES.join(', '), formatProfilesForPrompt(config.profiles)),
   })
+
+  // Contribute the built-in `handoff` skill as a low-rank fallback so every
+  // member can write a quota-handover document even when the host ships no
+  // handoff skill. A real host skill outranks it.
+  ctx.effect(
+    () => (ctx as unknown as { skills: { registerProvider(create: () => unknown): () => void } })
+      .skills.registerProvider(() => handoffSkillProvider()),
+    'agent-teams: handoff skill provider',
+  )
 
   // Deterministic activation surfaces: the closed-namespace `/agent-teams`
   // host command (surfaces in the Web GUI slash menu via the Harness
@@ -476,6 +489,73 @@ export function apply(ctx: Context, config: Config): void {
         }
       },
     }), 'agent-teams: plan route')
+
+    // Member runtime model switch (requirement one): validate and apply a new
+    // provider/model/reasoningEffort to one idle member, persisting the durable
+    // current route while leaving the spawn descriptor snapshot untouched.
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-agent-teams/member-model',
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { allow: 'POST', 'cache-control': 'no-store' })
+          res.end()
+          return
+        }
+        let payload: Record<string, unknown>
+        try {
+          payload = await readJsonRequest(req)
+        } catch (error: unknown) {
+          res.writeHead(error instanceof RequestBodyError ? error.status : 400, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'invalid request body' }))
+          return
+        }
+        const parsed = parseMemberModelSwitchRequest(payload)
+        if ('error' in parsed) {
+          res.writeHead(400, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: parsed.error }))
+          return
+        }
+        const captain = ctx.agents.get(parsed.sessionId as import('@deepseek-ai/dsh-session').SessionId)
+        if (captain === undefined) {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: 'captain session is not attached' }))
+          return
+        }
+        const workspace = captain.session.header.cwd ?? process.cwd()
+        const stateRoot = join(workspace, resolved.stateDir)
+        try {
+          const outcome = await withTeamLock(`team:${stateRoot}:${parsed.teamId}`, async () => {
+            const team = await readTeam(stateRoot, parsed.teamId)
+            if (team === undefined || team.captainSessionId !== captain.id) return { kind: 'notFound' as const }
+            const member = team.members.find(candidate => candidate.name === parsed.memberName && candidate.status !== 'removed')
+            if (member === undefined) return { kind: 'notFound' as const }
+            const switched = await switchMemberModel(ctx, {
+              team, member, provider: parsed.provider, model: parsed.model, reasoningEffort: parsed.reasoningEffort,
+            })
+            if (!switched.ok) return { kind: 'error' as const, error: switched.error }
+            await writeTeam(stateRoot, team)
+            return { kind: 'ok' as const, changed: switched.changed, route: switched.route }
+          })
+          if (outcome.kind === 'notFound') {
+            res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+            res.end(JSON.stringify({ error: 'team or member not found for this captain' }))
+            return
+          }
+          if (outcome.kind === 'error') {
+            res.writeHead(409, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+            res.end(JSON.stringify({ error: outcome.error }))
+            return
+          }
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ ok: true, changed: outcome.changed, route: outcome.route }))
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent-teams: member model switch failed for ${parsed.teamId}/${parsed.memberName}: ${String(error)}`)
+          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: 'failed to switch member model' }))
+        }
+      },
+    }), 'agent-teams: member model switch route')
 
   // Whale mascot artwork: serve the packaged V2 role/action images to the
   // activity panel. An explicit allowlist guards the route (no path

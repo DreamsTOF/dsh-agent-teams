@@ -305,7 +305,7 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
       const captain = liveCaptain(ctx, team.captainSessionId, suppliedCaptain)
       if (captain === undefined) return
       for (const member of team.members) {
-        if (member.status === 'removed') continue
+        if (member.status === 'removed' || member.status === 'exhausted') continue
         await runtime.kickMember(workspace, teamId, member.name, captain)
       }
     },
@@ -350,6 +350,10 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
           return
         }
 
+        // An exhausted member keeps its durable session and may still receive
+        // handover mail, but never a new task (quota policy).
+        if (member.status === 'exhausted') return
+
         const ticket = await withTeamLock(teamLockKey(stateRoot, team.id), async (): Promise<DispatchTicket | undefined> => {
           const fresh = await readTeam(stateRoot, team!.id)
           if (fresh === undefined || fresh.halted === true || fresh.phase === 'staged') return undefined
@@ -368,7 +372,7 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
             ? nextReadyTask(fresh.tasks, currentMember.name)
             : undefined
           if (task === undefined) {
-            if (currentMember.status !== 'idle') {
+            if (currentMember.status !== 'idle' && currentMember.status !== 'exhausted') {
               currentMember.status = 'idle'
               await writeTeam(stateRoot, fresh)
             }
@@ -529,6 +533,9 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
       const fresh = await readTeam(stateRoot, located.id)
       const current = fresh?.members.find(candidate => candidate.id === agent.id && candidate.status !== 'removed')
       if (fresh === undefined || current === undefined) return
+      // Quota exhaustion is a durable terminal-for-new-work state; a member
+      // turn settling back to idle must never reopen it.
+      if (current.status === 'exhausted') return
       const next = status === 'running' ? 'working' : 'idle'
       if (next === 'idle') {
         const owned = ownedOpenTask(fresh.tasks, current.name)

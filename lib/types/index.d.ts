@@ -57,6 +57,10 @@ export interface Config {
     memberMaxDepth?: number;
     /** Team size cap in members (default `8`). */
     maxMembers?: number;
+    /** Default completed-task quota for new members (default `5`; `0` means unlimited). */
+    memberMaxTasks?: number;
+    /** Default cumulative token budget for new members (default `200000000`; `0` means unlimited). */
+    memberMaxContextTokens?: number;
     /** Named multi-role team profiles. */
     profiles?: Record<string, TeamProfileConfig>;
     /**
