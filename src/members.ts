@@ -652,9 +652,7 @@ export function installMemberSelectionRuntime(
   ctx: Context,
   stateDir: string,
   onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>,
-  promptSectionWhitelist?: readonly string[],
 ): MemberSelectionRuntime {
-  const sectionWhitelist = compileSectionWhitelist(promptSectionWhitelist)
   const pending = new Map<string, MemberLlmSelection>()
   const pendingSetup = new Map<string, NonNullable<TeamMember['runtimeSetup']>>()
   installContinuableMemberSetup(ctx, (childCtx, child) => {
@@ -704,6 +702,7 @@ export function installMemberSelectionRuntime(
     // re-added by the overlay itself.
     // Drop tool-guidance sections whose tool this member cannot see
     // (`tool:pwsh` etc. are static and would otherwise outlive `tools.restrict`).
+    const sectionWhitelist = compileSectionWhitelist(setup?.toolSectionPatterns)
     let disposeToolGuidance = (): void => undefined
     try {
       disposeToolGuidance = installMemberToolGuidanceFilter(childCtx, child, sectionWhitelist)
@@ -1082,6 +1081,7 @@ export async function spawnMember(
         persona: memberPersona(team, member, stateDir, config.executionPrompt),
         toolFilter,
         ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+        ...member.toolSectionPatterns === undefined ? {} : { toolSectionPatterns: [...member.toolSectionPatterns] },
         ...member.mcpServers === undefined ? {} : { allowedMcpServers: [...member.mcpServers] },
       }
       return selections.withPending(captain.id, label, llmSelection, () => startMember(ctx.subagents, {
@@ -1129,6 +1129,7 @@ export async function spawnMember(
       persona: memberPersona(team, member, stateDir, config.executionPrompt),
       toolFilter: acceptedFilter,
       ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+      ...member.toolSectionPatterns === undefined ? {} : { toolSectionPatterns: [...member.toolSectionPatterns] },
       ...member.mcpServers === undefined ? {} : { allowedMcpServers: [...member.mcpServers] },
     }
   }

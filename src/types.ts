@@ -278,6 +278,8 @@ export interface TeamMember {
   allowedSkills?: string[]
   /** Resolved MCP server allowlist snapshot; absent means the member inherits every mounted MCP server. */
   mcpServers?: string[]
+  /** Wildcard `tools` entries (e.g. `browser-use:*`), reused to keep matching prompt sections. */
+  toolSectionPatterns?: string[]
   /** Resolved LLM provider route captured when this member was created. */
   provider?: string
   /** Resolved model captured when this member was created. */
@@ -317,7 +319,7 @@ export interface TeamMember {
    */
   toolFilter?: MemberToolFilter
   /** Exact child-scoped setup restored on hosts with managed activations. */
-  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter; allowedSkills?: string[]; allowedMcpServers?: string[] }
+  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter; allowedSkills?: string[]; allowedMcpServers?: string[]; toolSectionPatterns?: string[] }
   joinedAt: number
   status: MemberStatus
   /** Execution admission is closed while a failed/pending handoff is drained. */

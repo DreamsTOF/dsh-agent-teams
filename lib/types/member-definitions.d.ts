@@ -87,6 +87,8 @@ export interface ResolvedAllowlist {
     inherits: boolean;
     /** The fallback from a fully unmatched non-empty request (not a plain empty input). */
     fallback: boolean;
+    /** Wildcard entries from `tools` (e.g. `browser-use:*`); kept as prompt-section patterns. */
+    patterns?: string[];
 }
 /** Optional live universes used to resolve skills and MCP allowlists. */
 export interface ResolveDefinitionOptions {
@@ -112,6 +114,8 @@ export interface ResolvedMemberDefinition {
     tools: ResolvedAllowlist;
     skills: ResolvedAllowlist;
     mcpServers: ResolvedAllowlist;
+    /** Wildcard `tools` entries, reused to keep matching prompt-section names for the member. */
+    sectionPatterns: string[];
     diagnostics: MemberDefinitionDiagnostic[];
 }
 /**

@@ -13,6 +13,7 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
+import { matchesAnyPattern, patternToRegExp } from './glob.ts'
 
 /** Section-name prefix every tool-guidance section uses. */
 export const TOOL_SECTION_PREFIX = 'tool:'
@@ -28,20 +29,15 @@ export function compileSectionWhitelist(patterns: readonly string[] | undefined)
   if (patterns === undefined) return []
   const compiled: RegExp[] = []
   for (const pattern of patterns) {
-    const trimmed = pattern.trim()
-    if (trimmed === '') continue
-    try {
-      compiled.push(new RegExp(`^(?:${trimmed.replace(/\*/g, '.*')})$`))
-    } catch {
-      // An invalid pattern is skipped rather than failing the spawn.
-    }
+    const regex = patternToRegExp(pattern)
+    if (regex !== undefined) compiled.push(regex)
   }
   return compiled
 }
 
 /** Whether a section name matches any whitelist pattern. */
 export function matchesSectionWhitelist(name: string, whitelist: readonly RegExp[]): boolean {
-  return whitelist.some(regex => regex.test(name))
+  return matchesAnyPattern(name, whitelist)
 }
 
 /** Minimal structural view of one assembled prompt section. */

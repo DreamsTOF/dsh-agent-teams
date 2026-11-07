@@ -25,6 +25,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import * as YAML from 'yaml'
 import { CAPTAIN_TOOL_NAMES, MEMBER_TOOL_NAMES } from './tool-names.ts'
+import { patternToRegExp } from './glob.ts'
 
 /** Which of the three directories a definition came from. */
 export type MemberDefinitionSource = 'workspace' | 'dsh' | 'user'
@@ -126,6 +127,8 @@ export interface ResolvedAllowlist {
   inherits: boolean
   /** The fallback from a fully unmatched non-empty request (not a plain empty input). */
   fallback: boolean
+  /** Wildcard entries from `tools` (e.g. `browser-use:*`); kept as prompt-section patterns. */
+  patterns?: string[]
 }
 
 /** Optional live universes used to resolve skills and MCP allowlists. */
@@ -153,6 +156,8 @@ export interface ResolvedMemberDefinition {
   tools: ResolvedAllowlist
   skills: ResolvedAllowlist
   mcpServers: ResolvedAllowlist
+  /** Wildcard `tools` entries, reused to keep matching prompt-section names for the member. */
+  sectionPatterns: string[]
   diagnostics: MemberDefinitionDiagnostic[]
 }
 
@@ -448,6 +453,7 @@ function resolveTools(
   const captainOnly = new Set(CAPTAIN_TOOL_NAMES.map(name => name.toLowerCase()))
   const resolved: string[] = []
   const unmatched: string[] = []
+  const patterns: string[] = []
   const seen = new Set<string>()
   const push = (name: string): void => {
     const key = name.toLowerCase()
@@ -456,6 +462,28 @@ function resolveTools(
     resolved.push(name)
   }
   for (const raw of requested) {
+    // A wildcard entry (e.g. `browser-use:*`) opens every captain-visible
+    // non-captain tool whose name matches, and is ALSO kept as a prompt-section
+    // name pattern so the matching guidance sections stay for the member.
+    if (raw.trim().includes('*')) {
+      patterns.push(raw.trim())
+      const regex = patternToRegExp(raw.trim())
+      let matched = 0
+      if (regex !== undefined) {
+        for (const [lower, actual] of captain) {
+          if (captainOnly.has(lower)) continue
+          if (regex.test(actual)) { push(actual); matched += 1 }
+        }
+      }
+      diagnostics.push({
+        level: 'info',
+        code: 'tool-pattern',
+        message: matched === 0
+          ? `tool pattern "${raw.trim()}" matched no visible tool (kept as a prompt-section pattern)`
+          : `tool pattern "${raw.trim()}" matched ${matched} visible tool(s)`,
+      })
+      continue
+    }
     const mapping = mapToolName(raw)
     if (mapping.unmappable) {
       diagnostics.push({
@@ -488,7 +516,7 @@ function resolveTools(
     }
     push(actual)
   }
-  if (resolved.length === 0) {
+  if (resolved.length === 0 && patterns.length === 0) {
     diagnostics.push({
       level: 'warning',
       code: 'tools-fallback',
@@ -497,7 +525,7 @@ function resolveTools(
     return { requested, resolved: inherited, unmatched, inherits: true, fallback: true }
   }
   for (const name of MEMBER_TOOL_NAMES) push(name)
-  return { requested, resolved, unmatched, inherits: false, fallback: false }
+  return { requested, resolved, unmatched, inherits: false, fallback: false, ...patterns.length === 0 ? {} : { patterns } }
 }
 
 /**
@@ -580,6 +608,7 @@ export function resolveDefinition(
     tools,
     skills,
     mcpServers,
+    sectionPatterns: tools.patterns ?? [],
     diagnostics,
   }
 }

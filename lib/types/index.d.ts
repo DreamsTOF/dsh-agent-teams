@@ -61,13 +61,6 @@ export interface Config {
     memberMaxTasks?: number;
     /** Default cumulative token budget for new members (default `200000000`; `0` means unlimited). */
     memberMaxContextTokens?: number;
-    /**
-     * Regex whitelist of prompt-section NAMES that members always keep, even when
-     * the member filter would otherwise drop them (`tool:<name>` hidden,
-     * `mcp:<server>` unselected, …). `*` is a wildcard, e.g. `browser-use:*`
-     * keeps every section whose name starts with `browser-use:`.
-     */
-    memberPromptSectionWhitelist?: string[];
     /** Named multi-role team profiles. */
     profiles?: Record<string, TeamProfileConfig>;
     /**

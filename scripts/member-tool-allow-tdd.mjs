@@ -118,3 +118,21 @@ test('a wholly unknown mcpServers list falls back like an all-unknown skill list
   assert.deepEqual(resolved.mcpServers.unmatched, ['ghost'])
   assert.ok(resolved.diagnostics.some(d => d.code === 'mcp-fallback'))
 })
+
+test('a wildcard tools entry opens matching tools and becomes a section pattern', () => {
+  const visible = ['read', 'edit', 'pwsh', 'browser-use:nav', 'browser-use:click']
+  const resolved = resolveDefinition({ ...DEF, tools: ['read', 'browser-use:*'] }, visible)
+  assert.ok(resolved.tools.resolved.includes('read'))
+  assert.ok(resolved.tools.resolved.includes('browser-use:nav'))
+  assert.ok(resolved.tools.resolved.includes('browser-use:click'))
+  assert.ok(!resolved.tools.resolved.includes('pwsh'), 'unlisted non-matching tool excluded')
+  assert.deepEqual(resolved.sectionPatterns, ['browser-use:*'], 'the wildcard is kept as a prompt-section pattern')
+  assert.ok(resolved.diagnostics.some(d => d.code === 'tool-pattern'))
+})
+
+test('a wildcard that matches no tool restricts (not inherit-all) and keeps its section pattern', () => {
+  const resolved = resolveDefinition({ ...DEF, tools: ['ghost-ns:*'] }, ['read', 'edit'])
+  assert.equal(resolved.tools.inherits, false, 'a named wildcard is intentional, not an all-unmatched fallback')
+  assert.deepEqual(resolved.sectionPatterns, ['ghost-ns:*'])
+  assert.ok(!resolved.tools.resolved.includes('read'))
+})

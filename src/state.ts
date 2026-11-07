@@ -811,6 +811,7 @@ function isTeamMember(value: unknown): value is TeamMember {
     && isOptionalString(value['definitionPersona'])
     && isOptionalStringList(value['allowedSkills'])
     && isOptionalStringList(value['mcpServers'])
+    && isOptionalStringList(value['toolSectionPatterns'])
     && (value['stopping'] === undefined || typeof value['stopping'] === 'boolean')
     && (value['handoverPending'] === undefined || typeof value['handoverPending'] === 'boolean')
     && (value['handoverWrittenAt'] === undefined || isFiniteNumber(value['handoverWrittenAt']))
@@ -836,7 +837,8 @@ function isTeamMember(value: unknown): value is TeamMember {
       && typeof value['runtimeSetup']['persona'] === 'string'
       && isMemberToolFilter(value['runtimeSetup']['toolFilter'])
       && isOptionalStringList(value['runtimeSetup']['allowedSkills'])
-      && isOptionalStringList(value['runtimeSetup']['allowedMcpServers'])))
+      && isOptionalStringList(value['runtimeSetup']['allowedMcpServers'])
+      && isOptionalStringList(value['runtimeSetup']['toolSectionPatterns'])))
     && isFiniteNumber(value['joinedAt'])
     && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'exhausted' || value['status'] === 'removed')
 }
