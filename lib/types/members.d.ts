@@ -15,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { type Agent } from '@deepseek-ai/dsh-agent';
 import type { Session } from '@deepseek-ai/dsh-session';
 import { type SessionFormatBearer } from './harness-compat.ts';
+import type { CacheKeepalive } from './cache-keepalive.ts';
 import type { MemberToolFilter } from './tool-policies.ts';
 import { type TeamMember, type TeamState, type TeamTask } from './types.ts';
 /** Persona snapshot of a profile protocol; the full text lives on team.json. */
@@ -225,7 +226,7 @@ export declare function resolveMemberLlmSelection(ctx: Context, captain: Agent, 
  * record. Legacy members without a complete saved route retain Harness's
  * descriptor provider/model behavior.
  */
-export declare function installMemberSelectionRuntime(ctx: Context, stateDir: string, onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>): MemberSelectionRuntime;
+export declare function installMemberSelectionRuntime(ctx: Context, stateDir: string, onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>, cacheKeepalive?: CacheKeepalive): MemberSelectionRuntime;
 /**
  * The member's system prompt (persona), shadowing the deployment persona for
  * that child. Self-contained: it replaces the whole persona section.

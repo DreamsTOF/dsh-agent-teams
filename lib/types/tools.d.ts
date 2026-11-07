@@ -36,6 +36,8 @@ export interface ToolsConfig {
     memberMaxTasks?: number;
     /** Default cumulative token budget for new members (`0` = unlimited). */
     memberMaxContextTokens?: number;
+    /** Replay a minimal request every N minutes to keep provider prompt caches warm (default 10; 0 disables; see Config.cacheKeepaliveMinutes). */
+    cacheKeepaliveMinutes?: number;
     /** Named team profiles from the active DSH profile. */
     profiles: Record<string, import('./profiles.ts').TeamProfileConfig>;
     /** Owner-declared reusable member tool policies, keyed by policy id (#59). */
@@ -108,11 +110,6 @@ export declare function stagedPlanApprovedContext(teamName: string): string;
 export declare function stagedPlanDiscardContext(teamName: string): string;
 /** Model-facing continuation that turns the review UI back into a conversation. */
 export declare function stagedPlanFeedbackContext(teamName: string): string;
-/**
- * Register every `agent_teams_*` tool into the shared tools registry.
- * @param ctx - the plugin context (injects `tools`).
- * @param config - resolved tool config.
- */
 export declare function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): AgentTeamsRuntime;
 export declare function applyQualityFollowUp(team: TeamState, closed: TeamTask, snapshotPaths?: (paths: readonly string[]) => ArtifactSnapshot, pathExists?: (path: string) => boolean): {
     created: TeamTask[];

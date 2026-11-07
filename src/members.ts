@@ -24,6 +24,7 @@ import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type S
 import { installMemberHandoffSkill, installMemberSkillFilter } from './member-skills.ts'
 import { installMemberMcpFilter } from './member-mcp.ts'
 import { compileSectionWhitelist, installMemberToolGuidanceFilter } from './member-prompt.ts'
+import type { CacheKeepalive } from './cache-keepalive.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { mailboxPrompt } from './mailbox.ts'
 import { nearestLiveLead } from './lineage.ts'
@@ -652,6 +653,7 @@ export function installMemberSelectionRuntime(
   ctx: Context,
   stateDir: string,
   onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>,
+  cacheKeepalive?: CacheKeepalive,
 ): MemberSelectionRuntime {
   const pending = new Map<string, MemberLlmSelection>()
   const pendingSetup = new Map<string, NonNullable<TeamMember['runtimeSetup']>>()
@@ -671,6 +673,7 @@ export function installMemberSelectionRuntime(
     const workspace = child.session.header.cwd ?? process.cwd()
     const stateRoot = join(workspace, stateDir)
     const key = pendingSelectionKey(parentSessionId, descriptor.label)
+    cacheKeepalive?.track(child, { kind: 'member', workspace, teamId, memberName })
     // Internal settlement wakeups bypass the public delivery guard. Recheck
     // exact durable membership on every proposed step, including cold resume.
     const disposeAdmission = childCtx.on('agent/pre-step', async (payload, next) => {
@@ -756,7 +759,7 @@ export function installMemberSelectionRuntime(
         } catch (error) { stopFilter(); throw error }
       } catch (error) { disposeAdmission(); throw error }
     }
-    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeHandoff(); disposeToolGuidance(); disposeSetup(); disposeAdmission() }
+    const cleanupAdmission = (): void => { cacheKeepalive?.untrack(child.id); disposeMcp(); disposeSkills(); disposeHandoff(); disposeToolGuidance(); disposeSetup(); disposeAdmission() }
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)

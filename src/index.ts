@@ -94,6 +94,8 @@ export interface Config {
   memberMaxTasks?: number
   /** Default cumulative token budget for new members (default `200000000`; `0` means unlimited). */
   memberMaxContextTokens?: number
+  /** Replay a minimal request every N minutes to keep provider prompt caches warm for waiting team sessions (default 10; 0 disables). */
+  cacheKeepaliveMinutes?: number
   /** Named multi-role team profiles. */
   profiles?: Record<string, TeamProfileConfig>
   /**
@@ -178,6 +180,7 @@ export const Config: z<Config> = z.object({
   maxMembers: z.natural().min(1).default(8),
   memberMaxTasks: z.natural().default(5),
   memberMaxContextTokens: z.natural().default(200000000),
+  cacheKeepaliveMinutes: z.natural().default(10),
   promptSectionOrder: z.natural().default(117),
   slashCommand: z.boolean().default(true),
 })
@@ -210,6 +213,7 @@ export function apply(ctx: Context, config: Config): void {
     maxMembers: config.maxMembers ?? 8,
     memberMaxTasks: config.memberMaxTasks,
     memberMaxContextTokens: config.memberMaxContextTokens,
+    cacheKeepaliveMinutes: config.cacheKeepaliveMinutes ?? 10,
     profiles: config.profiles ?? {},
     // Owner configuration is validated once, at mount: an empty or malformed
     // policy must never reach a member creation path.

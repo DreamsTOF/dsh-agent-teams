@@ -144,6 +144,7 @@ Defaults work without extra setup. A trusted profile can override member behavio
 - id: agent-teams
   config:
     stateDir: .agent-teams
+    cacheKeepaliveMinutes: 10
     memberProvider: spawn
     memberModel: deepseek-v4
     memberMaxDepth: 0
@@ -171,6 +172,8 @@ This is model tool visibility and invocation policy for global tools, not an OS 
 `memberProvider` is the sub-agent runtime backend (`spawn` / `fork`), not an LLM provider. Cross-LLM-provider routing uses the optional `provider` + `model` fields of `agent_teams_add_member`; `memberModel` is only a model default for all members. A member on the captain's current provider/model inherits the captain's reasoning effort, while a changed provider or model automatically uses the target model's default. To request a particular effort, pass the optional `reasoning_effort` field — one of the target model's supported effort ids, or `"default"` to force the model's own default.
 
 `slashCommand: false` disables the deterministic `/agent-teams` activation surfaces (slash command and gesture boundary), leaving the natural-language trigger as the only entry point.
+
+`cacheKeepaliveMinutes` (default `10`; `0` disables) replays a minimal request (`maxTokens: 1`, "Reply OK") every N minutes for a captain or member that is idle but still has unfinished work, so the provider prompt cache does not expire and re-bill the whole prefix on its next turn. Finished/removed members and halted/archived teams are not renewed.
 
 ## Boundaries
 

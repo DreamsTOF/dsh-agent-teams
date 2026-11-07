@@ -61,6 +61,8 @@ export interface Config {
     memberMaxTasks?: number;
     /** Default cumulative token budget for new members (default `200000000`; `0` means unlimited). */
     memberMaxContextTokens?: number;
+    /** Replay a minimal request every N minutes to keep provider prompt caches warm for waiting team sessions (default 10; 0 disables). */
+    cacheKeepaliveMinutes?: number;
     /** Named multi-role team profiles. */
     profiles?: Record<string, TeamProfileConfig>;
     /**

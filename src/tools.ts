@@ -71,6 +71,7 @@ import type { DeliveryAudit } from './quality-gates.ts'
 import { workspaceAuditor } from './workspace-audit-service.ts'
 import { readArtifactScope, snapshotWorkspacePaths, workspacePathExists } from './artifacts.ts'
 import { agentTeamsSource, observedSessionFormatVersion, restrictableToolNames } from './harness-compat.ts'
+import { CacheKeepalive, type KeepaliveTarget } from './cache-keepalive.ts'
 import { dedupeToolNames, memberSpawnRelaxableDeny, optionalToolPolicy, requireToolPolicy, resolveMemberToolFilter, type MemberToolFilter, type MemberToolPolicy } from './tool-policies.ts'
 import { buildHandoverPrompt, evaluateQuota, handoverPath, markHandoverWritten, memberTokenUsage, quotaWarningReason, type SessionTokenUsageSource } from './member-quota.ts'
 import { mcpServerOfToolName, mountedMcpServerNames, resolveDefinition, resolveMemberToolAllow, scanMemberDefinitions, summarizeMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
@@ -118,6 +119,8 @@ export interface ToolsConfig {
   memberMaxTasks?: number
   /** Default cumulative token budget for new members (`0` = unlimited). */
   memberMaxContextTokens?: number
+  /** Replay a minimal request every N minutes to keep provider prompt caches warm (default 10; 0 disables; see Config.cacheKeepaliveMinutes). */
+  cacheKeepaliveMinutes?: number
   /** Named team profiles from the active DSH profile. */
   profiles: Record<string, import('./profiles.ts').TeamProfileConfig>
   /** Owner-declared reusable member tool policies, keyed by policy id (#59). */
@@ -744,6 +747,25 @@ export function stagedPlanFeedbackContext(teamName: string): string {
  * @param ctx - the plugin context (injects `tools`).
  * @param config - resolved tool config.
  */
+/**
+ * Whether a team session still needs its prompt cache kept warm. A member is
+ * renewed only while it is on the roster and still owns unfinished work; a
+ * captain is renewed while its team is staged or still has unfinished tasks.
+ * Removed members, halted teams and archived teams are never renewed.
+ */
+async function keepaliveTargetActive(config: ToolsConfig, target: KeepaliveTarget): Promise<boolean> {
+  const stateRoot = stateRootOf(target.workspace, config)
+  const team = await readTeam(stateRoot, target.teamId).catch(() => undefined)
+  if (team === undefined || team.halted === true) return false
+  if (target.kind === 'captain') {
+    if (team.phase === 'staged') return true
+    return team.tasks.some(task => !TERMINAL_TASK_STATUSES.includes(task.status))
+  }
+  const member = team.members.find(item => item.name === target.memberName)
+  if (member === undefined || member.status === 'removed') return false
+  return team.tasks.some(task => task.assignee === target.memberName && !TERMINAL_TASK_STATUSES.includes(task.status))
+}
+
 export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): AgentTeamsRuntime {
   // Own the lazy worker before any asynchronous tool/route callback can race
   // with unload. Late callbacks retain a closed service and fail safely.
@@ -752,6 +774,17 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
   installMemberDelegationGuard(ctx, config.stateDir, config.memberMaxDepth ?? 0)
   installMailboxAdmission(ctx, config.stateDir)
   const scheduler = installTeamScheduler(ctx, { stateDir: config.stateDir, executionPrompt: config.executionPrompt, dispatch: dispatchMember })
+  // Prompt-cache keep-alive: while a tracked captain/member still has work it is
+  // waiting on, replay a minimal request each interval so the provider cache
+  // does not expire and re-bill the whole prefix on the next real turn.
+  const cacheKeepalive = new CacheKeepalive(ctx, {
+    intervalMs: Math.max(0, config.cacheKeepaliveMinutes ?? 10) * 60_000,
+    shouldRenew: target => keepaliveTargetActive(config, target),
+  })
+  ctx.effect(() => {
+    const dispose = cacheKeepalive.install()
+    return () => { dispose(); cacheKeepalive.dispose() }
+  }, 'agent-teams: cache keepalive')
 
 
   async function dispatchMember(captain: Agent, teamId: string, memberName: string, text: string, signal: AbortSignal, mode: 'queue' | 'steer', attemptId?: string): Promise<boolean> {
@@ -1162,6 +1195,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         })
       })
       if (created.committed) {
+        cacheKeepalive.track(captain, { kind: 'captain', workspace, teamId: created.state.id })
         try {
           await scheduler.kickTeam(workspace, created.state.id, await liveLeadAnchorAgent(ctx, created.state, captain))
         } catch (error: unknown) {
@@ -2823,6 +2857,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         // Archive, not delete: tasks (with their dependency graph) and the
         // mailboxes stay on disk for later review and dependency rebuilds.
         await archiveTeamDir(stateRoot, fresh.id)
+        cacheKeepalive.untrack(captain.id)
       })
       return { deleted: true, team_name: team.name }
     },
@@ -2830,7 +2865,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
   // Live-member hydration validates saved filters against registered tools.
   const memberSelections = installMemberSelectionRuntime(ctx, config.stateDir, (workspace, teamId, memberName) => (
     scheduler.kickMember(workspace, teamId, memberName)
-  ))
+  ), cacheKeepalive)
 
   const runtime: AgentTeamsRuntime = {
     isPendingMember: memberSelections.isPendingMember,
