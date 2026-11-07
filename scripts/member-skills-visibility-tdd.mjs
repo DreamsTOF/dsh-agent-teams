@@ -227,3 +227,38 @@ test('our catalog uses a source kind the host catalog listener ignores', () => {
   const decision = hostCatalogStep({ kind: 'proceed', messages: [ownCatalog] }, { toolVisible: false, historyPublished: false })
   assert.equal(catalogNames(decision.messages).size, 0, 'a skill-catalog message is deleted when the host tool is shadowed')
 })
+
+test('handoff provider emits a host-valid candidate and definition', async () => {
+  const { handoffSkillProvider } = await import('../src/member-skills.ts')
+  const provider = handoffSkillProvider()
+  assert.equal(provider.name, 'agent-teams-handoff')
+  const candidates = await provider.list()
+  const candidate = candidates[0]
+  assert.equal(typeof candidate.name, 'string')
+  assert.ok(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate.name), 'kebab-case name')
+  assert.equal(typeof candidate.description, 'string')
+  assert.ok(candidate.description.length > 0)
+  assert.equal(typeof candidate.source, 'string', 'host requires a string source')
+  assert.equal(typeof candidate.provider, 'string')
+  assert.equal(candidate.provider, provider.name, 'provider must match the registered name')
+  assert.equal(typeof candidate.rank, 'number')
+  assert.equal(typeof candidate.invocation.modelInvocable, 'boolean')
+  assert.equal(typeof candidate.invocation.userInvocable, 'boolean')
+  const definition = await provider.get(candidate)
+  assert.equal(typeof definition.source, 'string', 'definition requires a string source')
+  assert.equal(typeof definition.provider, 'string')
+  assert.equal(definition.provider, provider.name)
+  assert.equal(typeof definition.content, 'string')
+  assert.ok(definition.content.length > 0)
+})
+
+test('installMemberHandoffSkill registers a scoped provider and is a no-op without skills', async () => {
+  const { installMemberHandoffSkill } = await import('../src/member-skills.ts')
+  let created
+  const childCtx = { skills: { registerProvider: (create) => { created = create(); return () => {} } } }
+  const dispose = installMemberHandoffSkill(childCtx)
+  assert.equal(created.name, 'agent-teams-handoff')
+  assert.equal(typeof dispose, 'function')
+  const noSkills = installMemberHandoffSkill({})
+  assert.equal(typeof noSkills, 'function')
+})

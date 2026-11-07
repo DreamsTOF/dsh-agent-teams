@@ -21,7 +21,7 @@ import type { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type SessionFormatBearer, guardSubagentCreation, startMember, usesManagedActivations, guardSubagentDelivery, installContinuableMemberSetup, memberToolFilter, queueMemberPrompt, restrictableToolNames, startMemberWithLenientFilter, steerMemberPrompt, sessionOwnEvents } from './harness-compat.ts'
-import { installMemberSkillFilter } from './member-skills.ts'
+import { installMemberHandoffSkill, installMemberSkillFilter } from './member-skills.ts'
 import { installMemberMcpFilter } from './member-mcp.ts'
 import { compileSectionWhitelist, installMemberToolGuidanceFilter } from './member-prompt.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
@@ -710,11 +710,21 @@ export function installMemberSelectionRuntime(
       disposeAdmission()
       throw error
     }
+    // Member-only handoff skill: scoped to this child so the captain never sees it.
+    let disposeHandoff = (): void => undefined
+    try {
+      disposeHandoff = installMemberHandoffSkill(childCtx)
+    } catch (error) {
+      disposeToolGuidance()
+      disposeAdmission()
+      throw error
+    }
     let disposeSkills = (): void => undefined
     if (setup?.allowedSkills !== undefined) {
       try {
         disposeSkills = installMemberSkillFilter(childCtx, child, setup.allowedSkills)
       } catch (error) {
+        disposeHandoff()
         disposeToolGuidance()
         disposeAdmission()
         throw error
@@ -725,6 +735,7 @@ export function installMemberSelectionRuntime(
       try {
         disposeMcp = installMemberMcpFilter(childCtx, child, setup.allowedMcpServers, sectionWhitelist)
       } catch (error) {
+        disposeHandoff()
         disposeSkills()
         disposeToolGuidance()
         disposeAdmission()
@@ -745,7 +756,7 @@ export function installMemberSelectionRuntime(
         } catch (error) { stopFilter(); throw error }
       } catch (error) { disposeAdmission(); throw error }
     }
-    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeToolGuidance(); disposeSetup(); disposeAdmission() }
+    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeHandoff(); disposeToolGuidance(); disposeSetup(); disposeAdmission() }
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)

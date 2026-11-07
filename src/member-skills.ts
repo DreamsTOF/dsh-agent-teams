@@ -59,6 +59,8 @@ export const HANDOFF_SKILL_DESCRIPTION =
   'Write a handover document when a member reaches its task or token quota and must stop taking new work.'
 /** Ranks below host providers so a real host `handoff` skill wins; this is a fallback. */
 export const HANDOFF_SKILL_RANK = 1000
+/** Provider name returned by the built-in handoff skill provider. */
+export const HANDOFF_SKILL_PROVIDER = 'agent-teams-handoff'
 
 /** Fixed handover document sections, in order. */
 export const HANDOFF_SKILL_SECTIONS: readonly string[] = [
@@ -75,6 +77,8 @@ export interface SkillSummaryLike {
   readonly name: string
   readonly description: string
   readonly invocation?: { readonly modelInvocable?: boolean; readonly userInvocable?: boolean }
+  readonly source?: string
+  readonly provider?: string
 }
 
 /** Minimal structural view of a skill candidate contributed by a provider. */
@@ -119,11 +123,13 @@ export function handoffSkillProvider(): SkillProviderLike {
     name: HANDOFF_SKILL_NAME,
     description: HANDOFF_SKILL_DESCRIPTION,
     invocation: { modelInvocable: true, userInvocable: true },
+    source: 'agent-teams',
+    provider: HANDOFF_SKILL_PROVIDER,
     rank: HANDOFF_SKILL_RANK,
     locator: { kind: 'builtin-handoff' },
   }
   return {
-    name: 'agent-teams-handoff',
+    name: HANDOFF_SKILL_PROVIDER,
     async list(): Promise<readonly SkillCandidateLike[]> {
       return [candidate]
     },
@@ -133,8 +139,9 @@ export function handoffSkillProvider(): SkillProviderLike {
         name: HANDOFF_SKILL_NAME,
         description: HANDOFF_SKILL_DESCRIPTION,
         invocation: { modelInvocable: true, userInvocable: true },
+        source: 'agent-teams',
         content: handoffSkillBody(),
-        provider: 'agent-teams',
+        provider: HANDOFF_SKILL_PROVIDER,
       }
     },
   }
@@ -354,4 +361,20 @@ export function installMemberSkillFilter(
   return () => {
     for (const dispose of disposers) dispose()
   }
+}
+
+/**
+ * Register the built-in `handoff` skill on ONE member's child context. The
+ * provider is scoped to that agent, so only members see `handoff` — the captain
+ * never gets it. A no-op when the child context has no skills registry.
+ * @param childCtx - the member's child context (scope of the provider).
+ * @returns a disposer that removes the provider.
+ */
+export function installMemberHandoffSkill(childCtx: Context): () => void {
+  const skills = (childCtx as unknown as {
+    skills?: { registerProvider?: (create: () => SkillProviderLike) => () => void }
+  }).skills
+  const register = skills?.registerProvider
+  if (typeof register !== 'function') return () => undefined
+  return register.call(skills, () => handoffSkillProvider())
 }

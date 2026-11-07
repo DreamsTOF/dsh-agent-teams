@@ -59,6 +59,8 @@ export declare const MEMBER_SKILL_CATALOG_KIND = "agent-teams:member-skills";
 export declare const HANDOFF_SKILL_DESCRIPTION = "Write a handover document when a member reaches its task or token quota and must stop taking new work.";
 /** Ranks below host providers so a real host `handoff` skill wins; this is a fallback. */
 export declare const HANDOFF_SKILL_RANK = 1000;
+/** Provider name returned by the built-in handoff skill provider. */
+export declare const HANDOFF_SKILL_PROVIDER = "agent-teams-handoff";
 /** Fixed handover document sections, in order. */
 export declare const HANDOFF_SKILL_SECTIONS: readonly string[];
 /** Minimal structural view of a skill summary (see `@deepseek-ai/dsh-skill`). */
@@ -69,6 +71,8 @@ export interface SkillSummaryLike {
         readonly modelInvocable?: boolean;
         readonly userInvocable?: boolean;
     };
+    readonly source?: string;
+    readonly provider?: string;
 }
 /** Minimal structural view of a skill candidate contributed by a provider. */
 export interface SkillCandidateLike extends SkillSummaryLike {
@@ -117,3 +121,11 @@ export declare function filterSkillSummaries<T extends SkillSummaryLike>(summari
  * @param handoffSkillName - the always-visible handover skill name.
  */
 export declare function installMemberSkillFilter(childCtx: Context, agent: Agent, allowedSkills: readonly string[] | undefined, handoffSkillName?: string): () => void;
+/**
+ * Register the built-in `handoff` skill on ONE member's child context. The
+ * provider is scoped to that agent, so only members see `handoff` — the captain
+ * never gets it. A no-op when the child context has no skills registry.
+ * @param childCtx - the member's child context (scope of the provider).
+ * @returns a disposer that removes the provider.
+ */
+export declare function installMemberHandoffSkill(childCtx: Context): () => void;

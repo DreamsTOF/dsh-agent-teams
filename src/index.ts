@@ -40,7 +40,6 @@ import { fileURLToPath } from 'node:url'
 import { collectArchivedTeamsActivity, collectTeamsActivity } from './snapshot.ts'
 import { findTeamByCaptain, readTeam, withTeamLock, writeTeam } from './state.ts'
 import { switchMemberModel } from './member-model-switch.ts'
-import { handoffSkillProvider } from './member-skills.ts'
 import { leadIdentityOfAsync } from './lineage.ts'
 import { formatProfilesForPrompt, type TeamProfileConfig } from './profiles.ts'
 import { parseToolPolicies, type MemberToolPolicy } from './tool-policies.ts'
@@ -232,15 +231,6 @@ export function apply(ctx: Context, config: Config): void {
     // installTeamCapabilities snapshots this once; no business state rewrites it.
     captainPrompt: () => usageSectionText(TEAM_TOOL_NAMES.join(', '), formatProfilesForPrompt(config.profiles)),
   })
-
-  // Contribute the built-in `handoff` skill as a low-rank fallback so every
-  // member can write a quota-handover document even when the host ships no
-  // handoff skill. A real host skill outranks it.
-  ctx.effect(
-    () => (ctx as unknown as { skills: { registerProvider(create: () => unknown): () => void } })
-      .skills.registerProvider(() => handoffSkillProvider()),
-    'agent-teams: handoff skill provider',
-  )
 
   // Deterministic activation surfaces: the closed-namespace `/agent-teams`
   // host command (surfaces in the Web GUI slash menu via the Harness
