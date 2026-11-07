@@ -36,6 +36,8 @@ This repository is the **DreamsTOF-maintained build**. It has diverged substanti
 | **Live activity panel** | The Web UI combines segmented progress, a collapsible roster, and an interactive task DAG; running tasks show the member's model, and completed archives retain their full member and task history. |
 | **Plan before execution** | Normal `/agent-teams` runs stage an unspawned roster and DAG first. The Web panel uses the host model catalog for member routes. Returning to chat stops the planning turn, asks what should change, and revises the same draft; discarding archives the draft, aborts the turn, and explicitly prevents automatic recreation. Only **Approve & Run** enables scheduling; each member starts with its first ready task. |
 | **Quality gates** | Opt-in quality tasks support requirements → implementation → verification → review → integration contracts, automatic repair/re-review, and explicit resume. Scope control is a completion-time audit, not host write interception. See [docs/quality-gates.md](./docs/quality-gates.md). |
+| **Markdown member definitions** | Personalities, tools, skills, MCP servers and quota can live in Markdown files under `.agents/agents`; the captain picks one by name and only ever sees its name and short description. |
+| **Prompt-cache keep-alive** | An idle captain or member that still has work is kept warm with a minimal replay each interval so the provider prompt cache does not expire and re-bill the whole prefix. |
 
 The conversation card and activity panel use Harness's official locale service. They follow live language changes between English and Simplified Chinese—including status labels, dynamic summaries, controls, archive markers, and accessibility text—without a page reload or a separate plugin setting.
 
@@ -173,7 +175,39 @@ This is model tool visibility and invocation policy for global tools, not an OS 
 
 `slashCommand: false` disables the deterministic `/agent-teams` activation surfaces (slash command and gesture boundary), leaving the natural-language trigger as the only entry point.
 
-`cacheKeepaliveMinutes` (default `10`; `0` disables) replays a minimal request (`maxTokens: 1`, "Reply OK") every N minutes for a captain or member that is idle but still has unfinished work, so the provider prompt cache does not expire and re-bill the whole prefix on its next turn. Finished/removed members and halted/archived teams are not renewed.
+## Team tools
+
+Team operations are **14** direct `agent_teams_*` tools. Adding and removing members share one tool: `agent_teams_add_member({ action: "add" | "remove", name })`; removing revokes the member's attempts, requeues its unfinished tasks, and interrupts its live turn.
+
+## Member definitions (Markdown)
+
+Instead of spelling out every member inline, drop Markdown files under `<workspace>/.agents/agents`, `~/.dsh/agents` or `~/.agents/agents` (highest priority first). The frontmatter `name` (or the file name) identifies the definition and the Markdown body is the member persona.
+
+```markdown
+---
+name: reviewer
+description: Reviews diffs for correctness and security
+model: inherit
+tools: read, grep, edit, browser-use:*
+skills: code-review
+mcpServers: codegraph
+maxTasks: 5
+maxContextTokens: 200000
+enabled: true
+---
+
+You are a meticulous reviewer...
+```
+
+- `model: inherit` follows the captain's current route; set an explicit model id (plus optional `provider` / `reasoning_effort`) for a fixed route.
+- `tools` / `skills` / `mcpServers` are allowlists; omit a field to inherit everything. A `tools` wildcard such as `browser-use:*` opens every matching tool and its prompt sections. Unmatched entries are dropped with a diagnostic; an all-unmatched list inherits everything.
+- `maxTasks` / `maxContextTokens` seed the member's quota and handover.
+
+The captain discovers definitions with **`agent_teams_list_member_definitions`**, which returns only each definition's **name and short description** — the captain never sees a member's tool/skill/MCP lists. It then selects one with `agent_teams_add_member({ agent: "<name>" })` (explicit fields override the definition). The resolved allowlists are applied inside the member session.
+
+## Prompt-cache keep-alive
+
+`cacheKeepaliveMinutes` (default `10`; `0` disables) replays a minimal request (`maxTokens: 1`, "Reply OK") every N minutes for a captain or member that is idle but still has unfinished work, so the provider prompt cache does not expire and re-bill the whole prefix on its next turn. Finished/removed members and halted/archived teams are not renewed. The ping reuses the member's own last agent-loop request (same provider/model), so it re-reads the prefix at the cached price; if a route bills per request or has no prompt cache, set it to `0`.
 
 ## Boundaries
 

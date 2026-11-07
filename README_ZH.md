@@ -35,6 +35,8 @@
 | **成员直达消息** | 成员通过持久化邮箱直接联系队友或队长，不需要队长中转。 |
 | **实时活动面板** | Web UI 用分段进度、可折叠成员树和可交互 DAG 展示实时工作；运行中的子任务会标出使用的模型，团队结束后仍保留完整成员与任务历史。 |
 | **质量门禁** | 人只提供目标和约束。默认任务顺序是需求 → 实现 → 验证 → 审查 → 集成，失败后自动修复/复审，恢复团队必须显式 resume。第一版范围控制是完成时审计，不是 host 写入拦截。详见 [docs/quality-gates.md](./docs/quality-gates.md)。 |
+| **Markdown 成员定义** | 人格、工具、技能、MCP 与配额可写在 `.agents/agents` 下的 Markdown 文件里；队长按名字选用，且只能看到名字与简短描述。 |
+| **缓存续费** | 仍有余量任务但空闲的队长/队员，按间隔重放一次最小请求保持提示缓存不过期，避免下一轮重算整段前缀暴涨账单。 |
 
 对话卡片与活动面板接入 Harness 官方多语言服务，会随宿主在简体中文和英文之间实时切换；任务/成员状态、动态摘要、操作按钮、历史归档标识和无障碍文案都会同步更新，无需刷新页面，也不增加插件自己的语言设置。
 
@@ -160,7 +162,39 @@ dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams#v0.2.0   # 固定 
 
 `slashCommand: false` 可关闭确定性的 `/agent-teams` 激活面（slash 命令与手势边界），仅保留自然语言触发。
 
-`cacheKeepaliveMinutes`（默认 `10`，`0` 关闭）会为“仍有余量任务但正在等待”的队长或队员，每 N 分钟重放一次最小请求（`maxTokens:1`，追加 "Reply OK"），让 provider 提示缓存不过期、避免下一轮重算整段前缀而暴涨账单。已完成/被移除的队员、以及 halted/归档的团队不会续期。
+## 团队工具
+
+团队操作共 **14** 个直连 `agent_teams_*` 工具。新增与移除成员合并为一个工具：`agent_teams_add_member({ action: "add" | "remove", name })`；移除会撤销该成员的 attempt、回收其未完成任务并中断其进行中的回合。
+
+## Markdown 成员定义
+
+不必逐个内联声明成员，把 Markdown 文件放到以下目录（优先级从高到低）：`<workspace>/.agents/agents`、`~/.dsh/agents`、`~/.agents/agents`。frontmatter 的 `name`（或文件名）即定义名，正文即成员 persona。
+
+```markdown
+---
+name: reviewer
+description: 审查改动是否正确、是否安全
+model: inherit
+tools: read, grep, edit, browser-use:*
+skills: code-review
+mcpServers: codegraph
+maxTasks: 5
+maxContextTokens: 200000
+enabled: true
+---
+
+你是一名严谨的评审者……
+```
+
+- `model: inherit` 跟随队长当前路由；写明确模型 id（可选 `provider` / `reasoning_effort`）则固定路由。
+- `tools` / `skills` / `mcpServers` 都是白名单，省略某项即继承全部。`tools` 支持通配，如 `browser-use:*` 会放开所有匹配工具及其提示词段；未命中的条目带诊断丢弃，整份名单都未命中则继承全部。
+- `maxTasks` / `maxContextTokens` 作为成员的配额与交接种子。
+
+队长通过 **`agent_teams_list_member_definitions`** 发现定义，该工具**只返回名字与简短描述**——队长看不到成员的工具/技能/MCP 清单；随后用 `agent_teams_add_member({ agent: "<名字>" })` 选择（显式字段覆盖定义）。解析后的白名单在成员会话内部应用。
+
+## 缓存续费
+
+`cacheKeepaliveMinutes`（默认 `10`，`0` 关闭）会为“仍有余量任务但正在等待”的队长或队员，每 N 分钟重放一次最小请求（`maxTokens:1`，追加 "Reply OK"），让 provider 提示缓存不过期、避免下一轮重算整段前缀而暴涨账单。已完成/被移除的队员、以及 halted/归档的团队不会续期。ping 复用成员自己最近一次主循环请求（同 provider/model），因此按缓存价重读前缀；若某路由按请求次数计费或没有提示缓存，设为 `0`。
 
 ## 使用边界
 
