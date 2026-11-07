@@ -14,6 +14,44 @@ import type { AgentTeamsTranslate } from './locales.ts'
 import css from './ActivityPanel.module.css'
 
 const PLAN_URL = '/plugins/dsh-agent-teams/plan'
+/** Read-only member-definition directory route (host-side scan). */
+const MEMBER_DEFINITIONS_URL = '/plugins/dsh-agent-teams/member-definitions'
+
+/** One member definition row returned by the definitions route. */
+interface MemberDefinitionSummary {
+  readonly name: string
+  readonly description?: string
+  readonly source?: string
+  readonly model?: string
+  readonly tools?: readonly string[]
+  readonly skills?: readonly string[]
+  readonly maxTasks?: number
+  readonly maxContextTokens?: number
+}
+
+interface MemberDefinitionsState {
+  readonly status: 'idle' | 'loading' | 'ready' | 'error'
+  readonly definitions: readonly MemberDefinitionSummary[]
+  readonly error?: string
+}
+
+/**
+ * Load the read-only member-definition directory. The host route is the HTTP
+ * counterpart of `agent_teams_list_member_definitions`; a missing route
+ * degrades to an unavailable notice instead of breaking the plan editor.
+ */
+async function fetchMemberDefinitions(sessionId: string): Promise<MemberDefinitionsState> {
+  try {
+    const query = new URLSearchParams({ session: sessionId }).toString()
+    const response = await fetch(`${MEMBER_DEFINITIONS_URL}?${query}`, { cache: 'no-store' })
+    if (!response.ok) return { status: 'error', definitions: [], error: `HTTP ${response.status}` }
+    const body = await response.json() as { definitions?: unknown }
+    if (!Array.isArray(body.definitions)) return { status: 'error', definitions: [], error: 'invalid response' }
+    return { status: 'ready', definitions: body.definitions as MemberDefinitionSummary[] }
+  } catch (error: unknown) {
+    return { status: 'error', definitions: [], error: error instanceof Error ? error.message : String(error) }
+  }
+}
 
 type PlanFeedback = {
   readonly tone: 'success' | 'error'
@@ -608,6 +646,71 @@ function StagedTaskEditor({ team, task, onPendingChange, t }: {
   )
 }
 
+/**
+ * Read-only member-definition directory shown inside the staged plan editor so
+ * the user can see which Markdown definitions are available before the Captain
+ * creates members from them in chat.
+ */
+function MemberDefinitionDirectory({ sessionId, t }: {
+  readonly sessionId: string
+  readonly t: AgentTeamsTranslate
+}) {
+  const listId = useId()
+  const [state, setState] = useState<MemberDefinitionsState>({ status: 'idle', definitions: [] })
+  const load = useCallback((): void => {
+    setState((current) => ({ ...current, status: 'loading' }))
+    void fetchMemberDefinitions(sessionId).then(setState)
+  }, [sessionId])
+  useEffect(() => { load() }, [load])
+  return (
+    <section className={css.planSection} data-member-definitions>
+      <button type="button" className={css.planSectionToggle} aria-expanded="true" aria-controls={listId}>
+        <span>
+          <strong>{t('plan.definitions.title')}</strong>
+          <small>{t('plan.definitions.count', { count: state.definitions.length })}</small>
+        </span>
+        <DisclosureChevron open={false} />
+      </button>
+      <div id={listId} className={css.planList} data-definition-directory>
+        {state.status === 'loading' && state.definitions.length === 0 && (
+          <p className={css.planEmpty}>{t('plan.definitions.loading')}</p>
+        )}
+        {state.status === 'error' && (
+          <p className={css.planEmpty} role="status" data-definitions-unavailable>
+            {t('plan.definitions.unavailable', { message: state.error ?? '' })}{' '}
+            <button type="button" onClick={load}>{t('plan.definitions.retry')}</button>
+          </p>
+        )}
+        {state.status === 'ready' && state.definitions.length === 0 && (
+          <p className={css.planEmpty}>{t('plan.definitions.empty')}</p>
+        )}
+        {state.definitions.map((definition) => (
+          <div
+            key={definition.name}
+            data-definition={definition.name}
+            style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 7 }}
+          >
+            <strong style={{ fontSize: 11, color: 'var(--dsw-alias-label-primary)' }}>{definition.name}</strong>
+            <span style={{ fontSize: 10, lineHeight: '14px', color: 'var(--dsw-alias-label-secondary)' }}>
+              {definition.description === undefined || definition.description === ''
+                ? t('plan.definitions.noDescription')
+                : definition.description}
+            </span>
+            <span style={{ fontSize: 9.5, color: 'var(--dsw-alias-label-tertiary)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+              {[
+                definition.source === undefined ? undefined : t('plan.definitions.source', { source: definition.source }),
+                definition.model === undefined || definition.model === '' ? undefined : t('plan.definitions.model', { model: definition.model }),
+                definition.tools === undefined ? undefined : t('plan.definitions.tools', { count: definition.tools.length }),
+              ].filter((part): part is string => part !== undefined).join(' · ')}
+            </span>
+          </div>
+        ))}
+        <p className={css.planEmpty}>{t('plan.definitions.hint')}</p>
+      </div>
+    </section>
+  )
+}
+
 export function StagingPlanEditor({ team, modelDirectory, onContinuePlanning, onDiscarded, t }: {
   readonly team: ActivityTeam
   readonly modelDirectory: ModelDirectory
@@ -759,6 +862,8 @@ export function StagingPlanEditor({ team, modelDirectory, onContinuePlanning, on
           </div>
         )}
       </section>
+
+      <MemberDefinitionDirectory sessionId={team.captainSessionId} t={t} />
 
       <section className={css.planSection}>
         <button type="button" className={css.planSectionToggle} aria-expanded={tasksOpen} aria-controls={tasksId} onClick={() => { setTasksOpen((current) => !current) }}>

@@ -3,9 +3,12 @@
 import assert from 'node:assert/strict'
 import { createServer, request } from 'node:http'
 import { once } from 'node:events'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { apply as installConnection } from '@deepseek-ai/dsh-client-connection'
-import { authenticatedWebRoutes, readJsonRequest, RequestBodyError } from '../lib/web-routes.js'
+import { authenticatedWebRoutes, collectMemberDefinitionsPayload, readJsonRequest, RequestBodyError } from '../lib/web-routes.js'
 
 const ctx = new Context()
 const routes = new Map()
@@ -39,7 +42,7 @@ ctx.provide('credentials', {
 ctx.provide('webServer', webServer)
 let gate
 let calls = 0
-const paths = ['/plugins/dsh-agent-teams/state', '/plugins/dsh-agent-teams/plan']
+const paths = ['/plugins/dsh-agent-teams/state', '/plugins/dsh-agent-teams/plan', '/plugins/dsh-agent-teams/member-definitions']
 const routePlugin = {
   name: 'agent-teams-auth-test',
   apply(owner) {
@@ -93,7 +96,7 @@ try {
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), { ok: true })
   }
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   const unauthenticatedUpload = await fetch(base + paths[1], { method: 'POST', body: 'x'.repeat(65) })
   assert.equal(unauthenticatedUpload.status, 401, 'authentication runs before parsing request bodies')
   await unauthenticatedUpload.arrayBuffer()
@@ -102,7 +105,7 @@ try {
   })
   assert.equal(oversized.status, 413, 'authorized oversized requests fail before mutating team state')
   await oversized.arrayBuffer()
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   for (const headers of [
     { cookie, origin: 'https://untrusted.invalid' },
     { cookie, 'sec-fetch-site': 'cross-site' },
@@ -119,13 +122,13 @@ try {
     })
     assert.equal(status, 403, `reject ${Object.keys(headers).filter(key => key !== 'cookie').join(', ')}`)
   }
-  assert.equal(calls, 2, 'rejected origins must not enter the mutation handler')
+  assert.equal(calls, 3, 'rejected origins must not enter the mutation handler')
 
   gate = undefined
   const unavailable = await fetch(base + paths[0], { headers: { cookie } })
   assert.equal(unavailable.status, 503)
   await unavailable.arrayBuffer()
-  assert.equal(calls, 2, 'missing Connection must fail closed')
+  assert.equal(calls, 3, 'missing Connection must fail closed')
 
   await fiber.dispose()
   assert(paths.every(path => !routes.has(path)), 'unload removes every owned route')
@@ -134,7 +137,32 @@ try {
   await reloaded.inertia
   assert(paths.every(path => routes.has(path)), 'reload restores exactly one registration')
   await reloaded.dispose()
-  console.log('PASS Web routes: real host authentication, bounded bodies, trusted origins, fail-closed startup, disposal and reload')
+  // The read-only member-definition directory must return the resolved payload
+  // the staging editor consumes (same scan/resolve path as the captain tool).
+  const definitionsWorkspace = await mkdtemp(join(tmpdir(), 'agent-teams-definitions-'))
+  try {
+    await mkdir(join(definitionsWorkspace, '.agents', 'agents'), { recursive: true })
+    await writeFile(join(definitionsWorkspace, '.agents', 'agents', 'demo.md'), [
+      '---', 'name: demo', 'description: Demo agent', 'model: inherit',
+      'tools: read, edit', 'skills: plugin-write', 'maxTasks: 3', 'maxContextTokens: 1000',
+      '---', '', '# Role', 'Do demo work.',
+    ].join('\n'))
+    const visible = ['read', 'edit', 'write', 'pwsh', 'agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status']
+    const payload = await collectMemberDefinitionsPayload(definitionsWorkspace, visible)
+    assert.equal(payload.definitions.length, 1, 'definition directory returns one entry')
+    const demo = payload.definitions[0]
+    assert.equal(demo.name, 'demo')
+    assert.equal(demo.description, 'Demo agent')
+    assert.equal(demo.source, 'workspace')
+    assert.equal(demo.model, 'inherit')
+    assert.deepEqual([...demo.tools].sort(), ['agent_teams_claim_task', 'agent_teams_send_message', 'agent_teams_status', 'agent_teams_update_task', 'edit', 'read'])
+    assert.deepEqual([...demo.skills], ['plugin-write'])
+    assert.equal(demo.maxTasks, 3)
+    assert.equal(demo.maxContextTokens, 1000)
+  } finally {
+    await rm(definitionsWorkspace, { recursive: true, force: true })
+  }
+  console.log('PASS Web routes: real host authentication, bounded bodies, trusted origins, fail-closed startup, disposal, reload, member-definitions payload')
 } finally {
   await ctx.fiber.dispose()
   server.closeAllConnections()

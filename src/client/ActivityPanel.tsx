@@ -25,7 +25,7 @@ import {
   IconBranchOutline16, IconChevronDownOutline14, IconPanelLeftOutline16,
   IconStopFill16, IconWarningOutline16,
 } from './icons.tsx'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, Modal, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { currentSessionId } from './session-navigation.ts'
 import type { ModelDirectory, ModelDirectoryResolver } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -46,6 +46,17 @@ import {
   taskModelLabel,
   teamIsActive,
   usesParallelTaskGrid,
+  effectiveModelEffort,
+  findModelCatalogEntry,
+  memberExhausted,
+  memberFallbackActive,
+  memberModelSwitchable,
+  memberTaskQuotaValue,
+  memberTokenQuotaValue,
+  modelCatalogEntries,
+  modelCatalogRouteKey,
+  type MemberRuntimeView,
+  type ModelCatalogGroupLike,
 } from './activity-model.ts'
 import {
   ACTIVITY_HALT_URL,
@@ -96,6 +107,21 @@ const PANEL_SHIFT_PROPERTY = '--agent-teams-panel-shift'
 const PANEL_CONVERSATION_GAP = 14
 const MOVE_THRESHOLD = 4
 const CAPTAIN_ASSIGNEE = 'captain'
+/** Host route that validates and applies one member runtime-model switch. */
+const MEMBER_MODEL_URL = '/plugins/dsh-agent-teams/member-model'
+const MEMBER_MODEL_MENU_OPEN_MODELS = 'open:models'
+const MEMBER_MODEL_MENU_OPEN_EFFORT = 'open:effort'
+const MEMBER_MODEL_MENU_BACK = 'navigate:back'
+const MEMBER_MODEL_MENU_RETRY = 'action:retry'
+const MEMBER_MODEL_MENU_DEFAULT_EFFORT = 'effort:default'
+
+function memberModelMenuId(provider: string, model: string): string {
+  return `model:${modelCatalogRouteKey(provider, model)}`
+}
+
+function memberEffortMenuId(effort: string): string {
+  return `effort:${effort}`
+}
 
 type PanelGesture = {
   readonly kind: 'move' | 'resize'
@@ -212,6 +238,232 @@ function CollapsedBadge({ count, busy, onClick, t }: {
       <span className={css.badgeDot} data-busy={busy} aria-hidden />
       <span className={css.badgeCount}>{count}</span>
     </button>
+  )
+}
+
+/**
+ * Inline runtime model picker for one member row. Reads the provider/model
+ * catalog from the shared model directory and posts the chosen route to the
+ * host member-model route. Only rendered for a switchable member; the parent
+ * row keeps a static badge otherwise (running/exhausted/removed/historic).
+ */
+function MemberModelPicker({ team, member, directory, t }: {
+  readonly team: ActivityTeam
+  readonly member: ActivityMember
+  readonly directory: ModelDirectory
+  readonly t: AgentTeamsTranslate
+}) {
+  const state = useSyncExternalStore(directory.store.subscribe, directory.store.getSnapshot)
+  const [open, setOpen] = useState(false)
+  const [pane, setPane] = useState<'root' | 'models' | 'effort'>('root')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const view = member as ActivityMember & MemberRuntimeView
+  const provider = member.provider ?? ''
+  const model = member.model ?? ''
+  const reasoningEffort = member.reasoningEffort ?? ''
+  const entries = modelCatalogEntries(state.groups as unknown as readonly ModelCatalogGroupLike[])
+  const selected = findModelCatalogEntry(entries, provider, model)
+  const efforts = selected?.efforts ?? []
+  const effectiveEffort = effectiveModelEffort(selected, reasoningEffort)
+  const selectedEffort = efforts.find((effort) => effort.id === effectiveEffort)
+  const modelLabel = selected?.modelName ?? (model === '' ? t('plan.model.choose') : model)
+  const effortLabel = selectedEffort?.name
+    ?? (effectiveEffort === undefined ? t('plan.model.providerDefault') : effectiveEffort)
+  const fallback = memberFallbackActive(view)
+  const displayRoute = fallback
+    ? (memberRouteLabel({ provider: view.activeProvider, model: view.activeModel }) || memberRouteLabel(member))
+    : memberRouteLabel(member)
+  const unavailable = state.status === 'error' || state.failures.length > 0
+
+  const close = (): void => { setOpen(false); setPane('root') }
+  const submit = async (nextProvider: string, nextModel: string, nextEffort: string): Promise<void> => {
+    setBusy(true)
+    setError('')
+    try {
+      const body: Record<string, unknown> = {
+        sessionId: team.captainSessionId,
+        teamId: team.teamId,
+        memberName: member.name,
+        provider: nextProvider,
+        model: nextModel,
+      }
+      // `default` is a picker sentinel: omit it so the host uses the target
+      // model's own default effort rather than rejecting an unknown id.
+      if (nextEffort !== '' && nextEffort !== 'default') body.reasoningEffort = nextEffort
+      const response = await fetch(MEMBER_MODEL_URL, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        let message = `HTTP ${response.status}`
+        try {
+          const parsed = await response.json() as { error?: unknown }
+          if (typeof parsed.error === 'string' && parsed.error.trim() !== '') message = parsed.error
+        } catch {}
+        throw new Error(message)
+      }
+    } catch (failure: unknown) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const backItem: MenuEntry = {
+    id: MEMBER_MODEL_MENU_BACK,
+    label: (
+      <span className={css.planModelMenuBack}>
+        <IconChevronDownOutline14 />
+        {t('plan.model.back')}
+      </span>
+    ),
+  }
+  const rootItems: readonly MenuEntry[] = [
+    {
+      id: MEMBER_MODEL_MENU_OPEN_MODELS,
+      label: (
+        <span className={css.planModelMenuRow}>
+          <span>{t('plan.member.model')}</span>
+          <strong>{modelLabel}</strong>
+          <IconChevronDownOutline14 />
+        </span>
+      ),
+      disabled: state.status === 'loading' && entries.length === 0,
+    },
+    {
+      id: MEMBER_MODEL_MENU_OPEN_EFFORT,
+      label: (
+        <span className={css.planModelMenuRow}>
+          <span>{t('plan.member.reasoning')}</span>
+          <strong>{effortLabel}</strong>
+          <IconChevronDownOutline14 />
+        </span>
+      ),
+      disabled: efforts.length === 0,
+    },
+  ]
+  const modelItems: MenuEntry[] = [backItem, { type: 'separator', id: 'member-models:separator' }]
+  if (entries.length === 0) {
+    modelItems.push({
+      id: 'member-models:empty',
+      label: state.status === 'loading' ? t('plan.model.loading') : t('plan.model.empty'),
+      disabled: true,
+    })
+  } else {
+    for (const group of state.groups) {
+      modelItems.push({ type: 'label', id: `member-provider:${group.id}`, text: group.name })
+      for (const candidate of group.models) {
+        modelItems.push({ id: memberModelMenuId(group.id, candidate.id), label: candidate.name })
+      }
+    }
+  }
+  const effortItems: MenuEntry[] = [
+    backItem,
+    { type: 'separator', id: 'member-effort:separator' },
+    {
+      id: MEMBER_MODEL_MENU_DEFAULT_EFFORT,
+      label: selected?.defaultEffort === undefined
+        ? t('plan.model.providerDefault')
+        : t('plan.model.modelDefault', {
+          effort: efforts.find((effort) => effort.id === selected.defaultEffort)?.name ?? selected.defaultEffort,
+        }),
+    },
+    ...efforts.map((effort): MenuEntry => ({
+      id: memberEffortMenuId(effort.id),
+      label: (
+        <span className={css.planModelEffortRow}>
+          <span>{effort.name}</span>
+          {effort.description !== undefined && <small>{effort.description}</small>}
+        </span>
+      ),
+    })),
+  ]
+  const items = pane === 'models' ? modelItems : pane === 'effort' ? effortItems : rootItems
+  const selectedId = pane === 'models'
+    ? memberModelMenuId(provider, model)
+    : pane === 'effort'
+      ? reasoningEffort === '' || reasoningEffort === 'default'
+        ? MEMBER_MODEL_MENU_DEFAULT_EFFORT
+        : memberEffortMenuId(reasoningEffort)
+      : undefined
+
+  const choose = (id: string): void => {
+    if (id === MEMBER_MODEL_MENU_OPEN_MODELS) { setPane('models'); return }
+    if (id === MEMBER_MODEL_MENU_OPEN_EFFORT) { setPane('effort'); return }
+    if (id === MEMBER_MODEL_MENU_BACK) { setPane('root'); return }
+    if (id === MEMBER_MODEL_MENU_RETRY) { void directory.load().catch(() => undefined); return }
+    const nextModel = entries.find((entry) => memberModelMenuId(entry.provider, entry.modelId) === id)
+    if (nextModel !== undefined) {
+      close()
+      if (nextModel.provider === provider && nextModel.modelId === model) return
+      void submit(nextModel.provider, nextModel.modelId, 'default')
+      return
+    }
+    if (id === MEMBER_MODEL_MENU_DEFAULT_EFFORT) {
+      close()
+      if (effectiveEffort === selected?.defaultEffort) return
+      void submit(provider, model, 'default')
+      return
+    }
+    const nextEffort = efforts.find((effort) => memberEffortMenuId(effort.id) === id)
+    if (nextEffort === undefined) return
+    close()
+    if (nextEffort.id === reasoningEffort) return
+    void submit(provider, model, nextEffort.id)
+  }
+
+  return (
+    <Menu
+      open={open}
+      portal
+      align="end"
+      compact
+      className={css.planModelMenu}
+      items={items}
+      footer={unavailable ? [{ id: MEMBER_MODEL_MENU_RETRY, label: t('plan.model.retry') }] : undefined}
+      selectedId={selectedId}
+      onSelect={choose}
+      onClose={close}
+      anchor={(
+        <span
+          role="button"
+          tabIndex={0}
+          className={css.memberModel}
+          data-member-model={displayRoute}
+          data-member-model-switchable="true"
+          data-fallback={fallback ? 'true' : undefined}
+          data-member-model-error={error === '' ? undefined : error}
+          title={error === '' ? displayRoute : error}
+          aria-label={t('member.model.triggerAria', { model: modelLabel, effort: effortLabel })}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-disabled={busy || undefined}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (busy) return
+            if (open) { close(); return }
+            setPane('root')
+            setOpen(true)
+            void directory.load().catch(() => undefined)
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            event.stopPropagation()
+            if (busy) return
+            if (open) { close(); return }
+            setPane('root')
+            setOpen(true)
+            void directory.load().catch(() => undefined)
+          }}
+        >
+          {compactModelLabel(displayRoute)}{fallback ? ' ⤵' : ''}
+        </span>
+      )}
+    />
   )
 }
 
@@ -703,6 +955,9 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
                 {visibleMembers.map((member) => {
                   const owned = team.tasks.filter((task) => task.assignee === member.name)
                   const memberModel = memberRouteLabel(member)
+                  const memberView = member as ActivityMember & MemberRuntimeView
+                  const canSwitchModel = !historic && !discarded && !stopped && team.phase !== 'staged'
+                    && modelDirectory !== undefined && memberModelSwitchable(member)
                   return (
               <div key={member.id || member.name} className={css.memberBlock} data-activity={member.activity} data-selected-member={workspace && selectedAssignee === member.name || undefined}>
                 <span className={css.memberBranch} aria-hidden><span /></span>
@@ -731,11 +986,22 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
                       {/* Inline member model badge: compact visible label, full route in
                           title/aria-label (accessible tooltip) and the data-member-model
                           DOM probe; noninteractive span, no tab stop. */}
-                      {memberModel !== '' && (
-                        <span className={css.memberModel} role="img" data-member-model={memberModel} title={memberModel} aria-label={memberModel}>
-                          {compactModelLabel(memberModel)}
-                        </span>
-                      )}
+                      {canSwitchModel && modelDirectory !== undefined
+                        ? <MemberModelPicker team={team} member={member} directory={modelDirectory} t={t} />
+                        : memberModel !== '' && (
+                          <span
+                            className={css.memberModel}
+                            role="img"
+                            data-member-model={memberModel}
+                            data-member-model-disabled={memberModelSwitchable(member)
+                              ? undefined
+                              : (member.activity === 'working' || member.status === 'working' ? 'running' : member.status)}
+                            title={memberModel}
+                            aria-label={memberModel}
+                          >
+                            {compactModelLabel(memberModel)}{memberFallbackActive(memberView) ? ' ⤵' : ''}
+                          </span>
+                        )}
                       <span className={css.memberState} data-activity={member.activity}>
                         <WorkGlyph active={member.activity === 'working'} />
                         {discarded
@@ -758,6 +1024,21 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
                       ))
                         ? t('member.status.settled')
                       : memberStatusText(member, team.tasks, t)}</span>
+                    {!discarded && (
+                      <span className={css.memberStatusLine} data-member-quota>
+                        {t('member.quota.tasks', { value: memberTaskQuotaValue(memberView.completedTasks ?? member.done, memberView.maxTasks ?? null) })}
+                        {' · '}
+                        {t('member.quota.tokens', { value: memberTokenQuotaValue(memberView.tokens ?? null, memberView.maxContextTokens ?? null) })}
+                        {memberExhausted(memberView) && (
+                          <span data-exhausted-badge style={{ marginLeft: 6, padding: '0 5px', borderRadius: 999, border: '1px solid var(--dsw-alias-state-warn-primary)', color: 'var(--dsw-alias-state-warn-primary)' }}>
+                            {t('member.exhausted.badge')}
+                          </span>
+                        )}
+                        {memberView.handoverPending === true && (
+                          <span data-handover-pending style={{ marginLeft: 6 }}>{t('member.handover.pending')}</span>
+                        )}
+                      </span>
+                    )}
                   </span>
                   <span className={css.memberCount}>{member.done}/{member.total}</span>
                 </button>
@@ -1331,9 +1612,7 @@ export function ActivityPanel({ sessionsList, modelDirectories, openMember, t, c
                     <TeamSection
                       key={team.teamId}
                       team={team}
-                      modelDirectory={team.phase === 'staged'
-                        ? modelDirectories.directoryFor(team.captainSessionId as SessionId)
-                        : undefined}
+                      modelDirectory={modelDirectories.directoryFor(team.captainSessionId as SessionId)}
                       onContinuePlanning={returnToComposer}
                       onDiscarded={returnToComposer}
                       onNavigate={navigateToSession}

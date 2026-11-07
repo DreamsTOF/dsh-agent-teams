@@ -1,6 +1,52 @@
 import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
+import { resolveDefinition, scanMemberDefinitions } from './member-definitions.ts'
+
+/** One read-only member-definition row returned to the staging editor. */
+export interface MemberDefinitionSummaryPayload {
+  readonly name: string
+  readonly description: string
+  readonly source: string
+  /** `inherit` or the resolved `provider/model` id. */
+  readonly model: string
+  readonly tools: readonly string[]
+  readonly skills: readonly string[]
+  readonly maxTasks: number
+  readonly maxContextTokens: number
+}
+
+/**
+ * Build the host-side member-definition directory payload the staging editor
+ * consumes. Reuses the same scan/resolve path as the
+ * `agent_teams_list_member_definitions` tool so the panel and the captain see
+ * one directory. Pure read: no workspace or team state is modified.
+ */
+export async function collectMemberDefinitionsPayload(
+  workspace: string,
+  captainVisibleTools: readonly string[],
+): Promise<{ definitions: MemberDefinitionSummaryPayload[] }> {
+  const scan = await scanMemberDefinitions(workspace)
+  const definitions = scan.definitions.map((definition): MemberDefinitionSummaryPayload => {
+    const resolved = resolveDefinition(definition, captainVisibleTools)
+    const model = definition.model === 'inherit'
+      ? 'inherit'
+      : resolved.provider === undefined || resolved.provider === ''
+        ? resolved.model
+        : `${resolved.provider}/${resolved.model}`
+    return {
+      name: resolved.name,
+      description: resolved.description,
+      source: resolved.source,
+      model,
+      tools: resolved.tools.resolved,
+      skills: resolved.skills.resolved,
+      maxTasks: resolved.maxTasks,
+      maxContextTokens: resolved.maxContextTokens,
+    }
+  })
+  return { definitions }
+}
 
 /** Public WebServer route surface used by the plugin. */
 export interface WebRouteHost {

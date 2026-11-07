@@ -45,10 +45,10 @@ import { leadIdentityOfAsync } from './lineage.ts'
 import { formatProfilesForPrompt, type TeamProfileConfig } from './profiles.ts'
 import { parseToolPolicies, type MemberToolPolicy } from './tool-policies.ts'
 import { installTeamCapabilities } from './capabilities.ts'
-import { agentTeamsSource, observedSessionFormatVersion } from './harness-compat.ts'
+import { agentTeamsSource, observedSessionFormatVersion, restrictableToolNames } from './harness-compat.ts'
 import { TEAM_TOOL_NAMES } from './tool-names.ts'
 
-import { authenticatedWebRoutes, parseMemberModelSwitchRequest, readJsonRequest, RequestBodyError, writeJsonWithEtag, type BrowserRequestGate, type WebRouteHost } from './web-routes.ts'
+import { authenticatedWebRoutes, collectMemberDefinitionsPayload, parseMemberModelSwitchRequest, readJsonRequest, RequestBodyError, writeJsonWithEtag, type BrowserRequestGate, type WebRouteHost } from './web-routes.ts'
 
 /** Web-server service key candidates, newest first. */
 const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
@@ -556,6 +556,43 @@ export function apply(ctx: Context, config: Config): void {
         }
       },
     }), 'agent-teams: member model switch route')
+
+    // Read-only member-definition directory for the staging editor. Mirrors the
+    // `agent_teams_list_member_definitions` tool via the same scan/resolve path;
+    // a missing/unreadable directory degrades to an empty list, never an error.
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-agent-teams/member-definitions',
+      handler: async (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' })
+          res.end()
+          return
+        }
+        const sessionId = new URL(req.url ?? '/', 'http://x').searchParams.get('session')?.trim() ?? ''
+        if (sessionId === '') {
+          res.writeHead(400, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: 'session is required' }))
+          return
+        }
+        const captain = ctx.agents.get(sessionId as import('@deepseek-ai/dsh-session').SessionId)
+        if (captain === undefined) {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: 'captain session is not attached' }))
+          return
+        }
+        const workspace = captain.session.header.cwd ?? process.cwd()
+        try {
+          const known = restrictableToolNames(captain)
+          const payload = await collectMemberDefinitionsPayload(workspace, known === undefined ? [] : [...known])
+          writeJsonWithEtag(req, res, JSON.stringify(payload))
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent-teams: member definition scan failed: ${String(error)}`)
+          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify({ error: 'failed to read member definitions' }))
+        }
+      },
+    }), 'agent-teams: member definitions route')
 
   // Whale mascot artwork: serve the packaged V2 role/action images to the
   // activity panel. An explicit allowlist guards the route (no path

@@ -19,6 +19,11 @@ export interface TeamActivityMember {
     readonly provider: string;
     readonly model: string;
     readonly reasoningEffort: string;
+    /** Active automatic-fallback route when a fallback is currently in effect. */
+    readonly activeProvider?: string;
+    readonly activeModel?: string;
+    /** Whether an automatic fallback route is currently active. */
+    readonly fallbackActive?: boolean;
     /** Completed tasks attributed to this member (quota numerator). */
     readonly completedTasks: number;
     /** Effective completed-task quota, or null when unlimited. */

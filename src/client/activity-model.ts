@@ -370,3 +370,162 @@ export function relatedTaskIds(taskId: string, tasks: readonly RelationshipTask[
   visitDownstream(taskId)
   return related
 }
+
+/**
+ * Minimal member shape the activity panel reads from the host snapshot for
+ * runtime route and quota display. The optional quota/fallback fields are
+ * emitted by the host snapshot even though the base {@link ActivityMember}
+ * transport type predates them.
+ */
+export interface MemberRuntimeView {
+  readonly provider?: string
+  readonly model?: string
+  readonly reasoningEffort?: string
+  readonly activeProvider?: string
+  readonly activeModel?: string
+  readonly fallbackActive?: boolean
+  readonly status?: string
+  readonly activity?: string
+  readonly completedTasks?: number
+  readonly maxTasks?: number | null
+  readonly tokens?: number | null
+  readonly maxContextTokens?: number | null
+  readonly exhaustedReason?: string
+  readonly handoverPending?: boolean
+}
+
+/** Member statuses that may switch model routes at runtime. */
+const MEMBER_SWITCHABLE_STATUSES: ReadonlySet<string> = new Set(['idle', 'ready'])
+
+/**
+ * Whether the member may switch its runtime model: only an idle (or `ready`)
+ * member that is not currently running. `working`/`exhausted`/`removed` and a
+ * live `working` activity all disable the control.
+ */
+export function memberModelSwitchable(member: Pick<MemberRuntimeView, 'status' | 'activity'>): boolean {
+  if (member.activity === 'working') return false
+  return MEMBER_SWITCHABLE_STATUSES.has(member.status ?? 'idle')
+}
+
+/** Whether the member is exhausted (status or a recorded quota reason). */
+export function memberExhausted(member: Pick<MemberRuntimeView, 'status' | 'exhaustedReason'>): boolean {
+  if (member.status === 'exhausted') return true
+  return member.exhaustedReason !== undefined && member.exhaustedReason.trim() !== ''
+}
+
+/** Whether an automatic fallback route is currently active for the member. */
+export function memberFallbackActive(
+  member: Pick<MemberRuntimeView, 'fallbackActive' | 'activeProvider' | 'activeModel'>,
+): boolean {
+  if (member.fallbackActive === true) return true
+  return member.activeProvider !== undefined && member.activeModel !== undefined
+}
+
+/**
+ * Format a cumulative token count with a compact k/M/B suffix.
+ * @param value - token count, or null/undefined when not measurable.
+ * @returns e.g. `0`, `950`, `1.2k`, `3.4M`; `—` for a missing value.
+ */
+export function formatTokenCount(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  const n = Math.max(0, value)
+  const trim = (scaled: number): string => {
+    const rounded = Math.round(scaled * 10) / 10
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  }
+  if (n < 1_000) return String(Math.round(n))
+  if (n < 1_000_000) return `${trim(n / 1_000)}k`
+  if (n < 1_000_000_000) return `${trim(n / 1_000_000)}M`
+  return `${trim(n / 1_000_000_000)}B`
+}
+
+/** `completed/max`, or just `completed` when the quota is unlimited (null). */
+export function memberTaskQuotaValue(completed: number, max: number | null): string {
+  return max === null ? String(completed) : `${completed}/${max}`
+}
+
+/** `used/max` token budget in compact notation, or just `used` when unlimited. */
+export function memberTokenQuotaValue(tokens: number | null, max: number | null): string {
+  const used = formatTokenCount(tokens)
+  return max === null ? used : `${used}/${formatTokenCount(max)}`
+}
+
+/** One selectable provider/model route with its reasoning-effort catalog. */
+export interface ModelCatalogEffort {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+}
+
+/** Flattened provider/model catalog entry used by the member model picker. */
+export interface ModelCatalogEntry {
+  readonly key: string
+  readonly provider: string
+  readonly providerName: string
+  readonly modelId: string
+  readonly modelName: string
+  readonly description?: string
+  readonly efforts: readonly ModelCatalogEffort[]
+  readonly defaultEffort?: string
+}
+
+/** Structural subset of the host model directory groups the picker reads. */
+export interface ModelCatalogGroupLike {
+  readonly id: string
+  readonly name: string
+  readonly models: readonly {
+    readonly id: string
+    readonly name: string
+    readonly description?: string
+    readonly reasoning?: {
+      readonly efforts: readonly ModelCatalogEffort[]
+      readonly defaultEffort?: string
+    }
+  }[]
+}
+
+/** Stable key for one provider/model route. */
+export function modelCatalogRouteKey(provider: string, model: string): string {
+  return JSON.stringify([provider, model])
+}
+
+/** Flatten the host model directory groups into selectable route entries. */
+export function modelCatalogEntries(
+  groups: readonly ModelCatalogGroupLike[],
+): readonly ModelCatalogEntry[] {
+  const entries: ModelCatalogEntry[] = []
+  for (const group of groups) {
+    for (const model of group.models) {
+      entries.push({
+        key: modelCatalogRouteKey(group.id, model.id),
+        provider: group.id,
+        providerName: group.name,
+        modelId: model.id,
+        modelName: model.name,
+        ...model.description === undefined ? {} : { description: model.description },
+        efforts: model.reasoning?.efforts ?? [],
+        ...model.reasoning?.defaultEffort === undefined ? {} : { defaultEffort: model.reasoning.defaultEffort },
+      })
+    }
+  }
+  return entries
+}
+
+/** Find one provider/model route in a flattened catalog. */
+export function findModelCatalogEntry(
+  entries: readonly ModelCatalogEntry[],
+  provider: string,
+  model: string,
+): ModelCatalogEntry | undefined {
+  const key = modelCatalogRouteKey(provider, model)
+  return entries.find((entry) => entry.key === key)
+}
+
+/**
+ * Resolve the effort a picker should display: an empty/`default` request means
+ * the model's own default; otherwise the requested id (even when unavailable).
+ */
+export function effectiveModelEffort(entry: ModelCatalogEntry | undefined, requested: string): string | undefined {
+  if (requested === '' || requested === 'default') return entry?.defaultEffort
+  return requested
+}

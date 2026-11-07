@@ -174,3 +174,87 @@ export declare function compactDagLayout<T extends RelationshipTask>(tasks: read
  * durable data contains a cycle.
  */
 export declare function relatedTaskIds(taskId: string, tasks: readonly RelationshipTask[]): ReadonlySet<string>;
+/**
+ * Minimal member shape the activity panel reads from the host snapshot for
+ * runtime route and quota display. The optional quota/fallback fields are
+ * emitted by the host snapshot even though the base {@link ActivityMember}
+ * transport type predates them.
+ */
+export interface MemberRuntimeView {
+    readonly provider?: string;
+    readonly model?: string;
+    readonly reasoningEffort?: string;
+    readonly activeProvider?: string;
+    readonly activeModel?: string;
+    readonly fallbackActive?: boolean;
+    readonly status?: string;
+    readonly activity?: string;
+    readonly completedTasks?: number;
+    readonly maxTasks?: number | null;
+    readonly tokens?: number | null;
+    readonly maxContextTokens?: number | null;
+    readonly exhaustedReason?: string;
+    readonly handoverPending?: boolean;
+}
+/**
+ * Whether the member may switch its runtime model: only an idle (or `ready`)
+ * member that is not currently running. `working`/`exhausted`/`removed` and a
+ * live `working` activity all disable the control.
+ */
+export declare function memberModelSwitchable(member: Pick<MemberRuntimeView, 'status' | 'activity'>): boolean;
+/** Whether the member is exhausted (status or a recorded quota reason). */
+export declare function memberExhausted(member: Pick<MemberRuntimeView, 'status' | 'exhaustedReason'>): boolean;
+/** Whether an automatic fallback route is currently active for the member. */
+export declare function memberFallbackActive(member: Pick<MemberRuntimeView, 'fallbackActive' | 'activeProvider' | 'activeModel'>): boolean;
+/**
+ * Format a cumulative token count with a compact k/M/B suffix.
+ * @param value - token count, or null/undefined when not measurable.
+ * @returns e.g. `0`, `950`, `1.2k`, `3.4M`; `—` for a missing value.
+ */
+export declare function formatTokenCount(value: number | null | undefined): string;
+/** `completed/max`, or just `completed` when the quota is unlimited (null). */
+export declare function memberTaskQuotaValue(completed: number, max: number | null): string;
+/** `used/max` token budget in compact notation, or just `used` when unlimited. */
+export declare function memberTokenQuotaValue(tokens: number | null, max: number | null): string;
+/** One selectable provider/model route with its reasoning-effort catalog. */
+export interface ModelCatalogEffort {
+    readonly id: string;
+    readonly name: string;
+    readonly description?: string;
+}
+/** Flattened provider/model catalog entry used by the member model picker. */
+export interface ModelCatalogEntry {
+    readonly key: string;
+    readonly provider: string;
+    readonly providerName: string;
+    readonly modelId: string;
+    readonly modelName: string;
+    readonly description?: string;
+    readonly efforts: readonly ModelCatalogEffort[];
+    readonly defaultEffort?: string;
+}
+/** Structural subset of the host model directory groups the picker reads. */
+export interface ModelCatalogGroupLike {
+    readonly id: string;
+    readonly name: string;
+    readonly models: readonly {
+        readonly id: string;
+        readonly name: string;
+        readonly description?: string;
+        readonly reasoning?: {
+            readonly efforts: readonly ModelCatalogEffort[];
+            readonly defaultEffort?: string;
+        };
+    }[];
+}
+/** Stable key for one provider/model route. */
+export declare function modelCatalogRouteKey(provider: string, model: string): string;
+/** Flatten the host model directory groups into selectable route entries. */
+export declare function modelCatalogEntries(groups: readonly ModelCatalogGroupLike[]): readonly ModelCatalogEntry[];
+/** Find one provider/model route in a flattened catalog. */
+export declare function findModelCatalogEntry(entries: readonly ModelCatalogEntry[], provider: string, model: string): ModelCatalogEntry | undefined;
+/**
+ * Resolve the effort a picker should display: an empty/`default` request means
+ * the model's own default; otherwise the requested id (even when unavailable).
+ */
+export declare function effectiveModelEffort(entry: ModelCatalogEntry | undefined, requested: string): string | undefined;
