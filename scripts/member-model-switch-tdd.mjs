@@ -336,3 +336,45 @@ test('applyManualSwitch clears reasoningEffort when the target has none', () => 
   assert.equal(next.reasoningEffort, undefined)
   assert.equal('reasoningEffort' in next, false)
 })
+
+test('production spawn writes spawn* once and a later manual switch keeps the descriptor snapshot', async () => {
+  const { spawnMember } = await import('../src/members.ts')
+  const member = { id: '', name: 'alice', provider: 'openai', model: 'gpt-4o', reasoningEffort: 'low', joinedAt: 0, status: 'idle' }
+  const team = makeTeam([member], { id: 'spawn-team' })
+  const captain = { id: 'captain-1', session: { header: {} } }
+  let startSpec
+  const ctx = {
+    subagents: {
+      getProvider: () => ({ prepareContinuable() {}, capabilities: { persona: true, toolFilter: true } }),
+      startContinuable: async spec => { startSpec = spec; return { childId: 'child-1' } },
+    },
+  }
+  await spawnMember(
+    ctx,
+    { provider: 'spawn', maxDepth: 0 },
+    { withPending: (_parent, _label, _selection, run) => run() },
+    { provider: 'openai', model: 'gpt-4o', reasoningEffort: 'low' },
+    captain, team, member, '.agent-teams', new AbortController().signal,
+  )
+  assert.equal(member.id, 'child-1')
+  assert.equal(startSpec.request.agentOptions.provider, 'openai')
+  // R1-001: the first successful spawn persists the immutable snapshot exactly once.
+  assert.equal(member.spawnProvider, 'openai')
+  assert.equal(member.spawnModel, 'gpt-4o')
+  assert.equal(member.spawnReasoningEffort, 'low')
+
+  const switched = applyManualSwitch(member, { provider: 'grok', model: 'grok-4' })
+  assert.equal(switched.provider, 'grok', 'current route follows the manual switch')
+  assert.equal(switched.spawnProvider, 'openai', 'spawn snapshot is never rewritten')
+  assert.equal(switched.spawnModel, 'gpt-4o')
+  assert.equal(switched.spawnReasoningEffort, 'low')
+
+  // Cold resume compares the immutable descriptor to spawn* rather than the
+  // current route, so the post-switch B route no longer trips the mismatch guard.
+  const descriptor = { agentProvider: 'openai', agentModel: 'gpt-4o' }
+  const expectedProvider = switched.spawnProvider ?? switched.provider
+  const expectedModel = switched.spawnModel ?? switched.model
+  assert.equal(descriptor.agentProvider, expectedProvider)
+  assert.equal(descriptor.agentModel, expectedModel)
+  assert.notEqual(descriptor.agentProvider, switched.provider, 'the current route diverged from the descriptor')
+})

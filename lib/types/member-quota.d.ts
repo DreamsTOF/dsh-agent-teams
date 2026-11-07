@@ -74,6 +74,21 @@ export declare function memberTokenUsage(ctx: SessionTokenUsageSource, session: 
  * completed-task count or the cumulative token usage reaches its limit.
  */
 export declare function evaluateQuota(member: Pick<TeamMember, 'name' | 'maxTasks' | 'maxContextTokens'>, team: TeamState, tokens: number): QuotaEvaluation;
+/**
+ * Mid-task token-budget pre-warning (requirement §5.4).
+ *
+ * Returns a reason exactly once while a member is still working but has already
+ * consumed its token budget, so the captain learns about the near-exhaustion
+ * before the member finishes. It never interrupts the current task. Task-quota
+ * exhaustion does not warn here (the member will be handed off on completion).
+ */
+export declare function quotaWarningReason(member: Pick<TeamMember, 'name' | 'maxTasks' | 'maxContextTokens' | 'quotaWarnedAt'>, team: TeamState, tokens: number): string | undefined;
+/**
+ * Mark a pending handover as written and clear the pending flag. The completed
+ * flag is a durable timestamp so the panel can distinguish "handover pending"
+ * from "handover written" without re-deriving it from the file.
+ */
+export declare function markHandoverWritten(member: TeamMember, at?: number): TeamMember;
 /** Absolute path of the member's handover document inside the team directory. */
 export declare function handoverPath(workspace: string, stateDir: string, teamId: string, member: string): string;
 /** Fixed-section handover document skeleton for one member. */

@@ -116,6 +116,38 @@ export function evaluateQuota(
   return { exhausted, reason, details: { completedTasks, maxTasks, tokens, maxContextTokens, triggers } }
 }
 
+/**
+ * Mid-task token-budget pre-warning (requirement §5.4).
+ *
+ * Returns a reason exactly once while a member is still working but has already
+ * consumed its token budget, so the captain learns about the near-exhaustion
+ * before the member finishes. It never interrupts the current task. Task-quota
+ * exhaustion does not warn here (the member will be handed off on completion).
+ */
+export function quotaWarningReason(
+  member: Pick<TeamMember, 'name' | 'maxTasks' | 'maxContextTokens' | 'quotaWarnedAt'>,
+  team: TeamState,
+  tokens: number,
+): string | undefined {
+  if (member.quotaWarnedAt !== undefined) return undefined
+  const maxTasks = quotaLimit(member.maxTasks ?? team.memberMaxTasks)
+  if (maxTasks !== null && completedTaskCount(team, member.name) >= maxTasks) return undefined
+  const maxContextTokens = quotaLimit(member.maxContextTokens ?? team.memberMaxContextTokens)
+  if (maxContextTokens === null || tokens < maxContextTokens) return undefined
+  return `used ${tokens} token(s), reaching maxContextTokens ${maxContextTokens}`
+}
+
+/**
+ * Mark a pending handover as written and clear the pending flag. The completed
+ * flag is a durable timestamp so the panel can distinguish "handover pending"
+ * from "handover written" without re-deriving it from the file.
+ */
+export function markHandoverWritten(member: TeamMember, at = Date.now()): TeamMember {
+  const next: TeamMember = { ...member, handoverWrittenAt: at }
+  delete next.handoverPending
+  return next
+}
+
 /** Absolute path of the member's handover document inside the team directory. */
 export function handoverPath(workspace: string, stateDir: string, teamId: string, member: string): string {
   return join(workspace, stateDir, teamId, 'handover', `${member}.md`)

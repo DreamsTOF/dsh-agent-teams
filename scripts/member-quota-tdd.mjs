@@ -17,6 +17,8 @@ const {
   handoverPath,
   handoverTemplate,
   buildHandoverPrompt,
+  quotaWarningReason,
+  markHandoverWritten,
 } = await import('../src/member-quota.ts')
 
 const member = (overrides = {}) => ({ name: 'alice', ...overrides })
@@ -146,4 +148,32 @@ test('buildHandoverPrompt carries the exact path and fixed sections', () => {
     assert.ok(prompt.includes(`## ${heading}`), `missing section ${heading}`)
   }
   assert.match(buildHandoverPrompt(), /<workspace>/)
+})
+
+test('mid-task token warning fires exactly once and never when the task quota already closes the member', () => {
+  const baseTeam = { id: 't', name: 'T', captainSessionId: 'c', createdAt: 0, members: [], tasks: [], taskSeq: 0, memberMaxContextTokens: 1000 }
+  const working = { name: 'alice', status: 'working', maxContextTokens: 1000, quotaWarnedAt: undefined }
+  assert.ok(quotaWarningReason(working, baseTeam, 1000), 'fires at the budget')
+  assert.ok(quotaWarningReason(working, baseTeam, 1500), 'fires above the budget')
+  assert.equal(quotaWarningReason({ ...working, quotaWarnedAt: 123 }, baseTeam, 1500), undefined, 'deduped after the first warning')
+  assert.equal(quotaWarningReason(working, baseTeam, 999), undefined, 'silent below the budget')
+
+  const exhaustedTeam = {
+    ...baseTeam,
+    memberMaxTasks: 1,
+    tasks: [{ id: 't1', subject: 'done', status: 'completed', assignee: 'alice', dependencies: [], createdAt: 0, updatedAt: 0 }],
+  }
+  assert.equal(
+    quotaWarningReason({ name: 'alice', maxTasks: 1, quotaWarnedAt: undefined }, exhaustedTeam, 999999),
+    undefined,
+    'a member already at its completed-task quota is handed off on completion instead of pre-warned',
+  )
+})
+
+test('markHandoverWritten clears the pending flag and records completion without mutating the input', () => {
+  const member = { id: 'm', name: 'alice', joinedAt: 0, status: 'exhausted', handoverPending: true }
+  const written = markHandoverWritten(member, 123)
+  assert.equal(written.handoverPending, undefined, 'pending flag is cleared')
+  assert.equal(written.handoverWrittenAt, 123, 'completion timestamp is recorded')
+  assert.equal(member.handoverPending, true, 'input record is not mutated')
 })

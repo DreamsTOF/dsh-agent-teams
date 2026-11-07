@@ -278,3 +278,16 @@ test('team.json round-trips the policy id and the resolved filter', async () => 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('definition tool allowlist and a tool-policy allowlist are unioned before filtering (R2-003)', () => {
+  // add_member unions the policy allowlist and the definition `tools` allowlist,
+  // then resolves once: any source may keep a tool, captain-only tools stay
+  // denied, and the four coordination tools are always re-added.
+  const union = dedupeToolNames(['read', 'edit', 'grep', 'read'])
+  const filter = resolveMemberToolFilter({ allow: union })
+  assert.ok(filter.allow !== undefined)
+  for (const name of ['read', 'edit', 'grep']) assert.ok(filter.allow.includes(name), name)
+  for (const name of MEMBER_TOOL_NAMES) assert.ok(filter.allow.includes(name), name)
+  for (const name of CAPTAIN_TOOL_NAMES) assert.ok(!filter.allow.includes(name), name)
+  assert.equal(filter.allow.length, new Set(filter.allow).size, 'allow stays de-duplicated')
+})

@@ -941,15 +941,15 @@ export function memberPersona(team: TeamState, member: TeamMember, stateDir: str
   const injectedPrompt = member.executionPrompt?.trim() || executionPrompt?.trim()
   const protocol = truncatedPersonaProtocol(team.profile?.protocol)
   const definitionPersona = member.definitionPersona?.trim()
-  return `You are ${member.name}, a member of the multi-agent team "${team.name}" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member${member.role ? ` with the role: ${member.role}` : ''}.${definitionPersona === undefined || definitionPersona === '' ? '' : `
+  return `Team context:
+- Team id: ${team.id}
+- Team goal: ${goal}
+
+You are ${member.name}, a member of the multi-agent team "${team.name}" running inside DeepSeek Harness AgentTeams. The captain leads the team; you are a worker member${member.role ? ` with the role: ${member.role}` : ''}.${definitionPersona === undefined || definitionPersona === '' ? '' : `
 
 ${definitionPersona}`}
 
-Team context:
-- Team id: ${team.id}
-- Your name inside the team (use it as \`from\`/identity): ${member.name}
-- Team goal: ${goal}
-- Profile protocol: ${protocol}
+Profile protocol: ${protocol}
 ${injectedPrompt === undefined || injectedPrompt === '' ? '' : `- Execution guidance:
 ${injectedPrompt}
 `}- The team state lives under ${stateDir}/${team.id}/ (team.json and inbox/*.jsonl). You may inspect these files read-only for diagnostics, but never edit them directly; use the agent_teams_* tools so JSON escaping and concurrent updates stay safe.
@@ -1089,6 +1089,15 @@ export async function spawnMember(
     relaxableDeny,
   )
   member.id = start.childId
+  // Persist the first successful spawn route exactly once. Later manual
+  // switches and automatic fallback change only the current route
+  // (provider/model/reasoningEffort); the immutable descriptor snapshot must
+  // stay at its first value for cold-resume consistency (requirement 1 A1/A4).
+  if (member.spawnProvider === undefined) member.spawnProvider = llmSelection.provider
+  if (member.spawnModel === undefined) member.spawnModel = llmSelection.model
+  if (member.spawnReasoningEffort === undefined && llmSelection.reasoningEffort !== undefined) {
+    member.spawnReasoningEffort = llmSelection.reasoningEffort
+  }
   if (usesManagedActivations(ctx.subagents)) {
     member.runtimeSetup = {
       persona: memberPersona(team, member, stateDir, config.executionPrompt),

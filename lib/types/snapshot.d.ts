@@ -36,6 +36,8 @@ export interface TeamActivityMember {
     readonly exhaustedReason?: string;
     /** True while a quota-triggered handover is outstanding. */
     readonly handoverPending?: boolean;
+    /** Set once the pending handover document was written. */
+    readonly handoverWrittenAt?: number;
     readonly executionPrompt?: string;
     readonly status: MemberStatus;
     readonly activity: 'working' | 'idle' | 'unknown';

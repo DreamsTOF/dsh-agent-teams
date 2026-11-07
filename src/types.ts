@@ -276,6 +276,8 @@ export interface TeamMember {
   definitionPersona?: string
   /** Resolved skill allowlist snapshot; absent means the member inherits every visible skill. */
   allowedSkills?: string[]
+  /** Resolved MCP server allowlist snapshot; absent means the member inherits every mounted MCP server. */
+  mcpServers?: string[]
   /** Resolved LLM provider route captured when this member was created. */
   provider?: string
   /** Resolved model captured when this member was created. */
@@ -322,6 +324,10 @@ export interface TeamMember {
   stopping?: boolean
   /** A quota-triggered handover was requested but has not completed yet. */
   handoverPending?: boolean
+  /** Set once the member's handover document is considered written; clears `handoverPending`. */
+  handoverWrittenAt?: number
+  /** Set when a mid-task token-budget warning was sent to the captain (dedupes the warning). */
+  quotaWarnedAt?: number
   /**
    * Last member-start failure, recorded so the captain can see why a member
    * never acquired a session instead of observing an unexplained `unspawned`

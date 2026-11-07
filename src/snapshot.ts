@@ -49,6 +49,8 @@ export interface TeamActivityMember {
   readonly exhaustedReason?: string
   /** True while a quota-triggered handover is outstanding. */
   readonly handoverPending?: boolean
+  /** Set once the pending handover document was written. */
+  readonly handoverWrittenAt?: number
   readonly executionPrompt?: string
   readonly status: MemberStatus
   readonly activity: 'working' | 'idle' | 'unknown'
@@ -201,7 +203,8 @@ export async function assembleTeamSnapshot(
       tokens: quota.details.tokens,
       maxContextTokens: quota.details.maxContextTokens,
       ...quota.reason === undefined ? {} : { exhaustedReason: quota.reason },
-      ...member.handoverPending === true ? { handoverPending: true } : {},
+      ...member.handoverPending === true && member.handoverWrittenAt === undefined ? { handoverPending: true } : {},
+      ...member.handoverWrittenAt === undefined ? {} : { handoverWrittenAt: member.handoverWrittenAt },
       ...includePlanText ? { executionPrompt: member.executionPrompt ?? '' } : {},
       status: member.status,
       activity: options.historic === true
