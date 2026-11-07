@@ -36,7 +36,7 @@
 
 ## 版本更新
 
-[最新发布](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) 新增成员运行时模型切换、Markdown 成员定义（工具/技能/MCP 过滤）、按成员的配额与交接、以及精确的 fork 团队身份。目标宿主为 Harness `0.2.2-rc.1`。详见[测试矩阵](./compatibility.json)和[发布说明](./release-notes/v0.2.0.md)。
+[最新发布](https://github.com/DreamsTOF/dsh-agent-teams/releases/latest) 新增成员运行时模型切换、Markdown 成员定义（工具/技能/MCP 过滤）、按成员的配额与交接、以及精确的 fork 团队身份。目标宿主为 Harness `0.2.2-rc.1`。详见[测试矩阵](./compatibility.json)和[发布说明](./release-notes/v0.2.0.md)。
 
 ## 为什么需要 AgentTeams？
 
@@ -74,13 +74,13 @@ CI 验证表中最后一行之前的精确宿主版本。安装器也接受达�
 在应用侧栏打开「插件 → 添加插件」，可以直接通过 GitHub 地址安装。在插件输入框中粘贴下面的仓库地址，无需追加版本号、tag 或 commit：
 
 ```text
-https://github.com/NanmiCoder/dsh-agent-teams
+https://github.com/DreamsTOF/dsh-agent-teams
 ```
 
 此方式从默认分支安装，刚发布后即可使用。也支持下面的等价简写：
 
 ```text
-github:NanmiCoder/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams
 ```
 
 从 npm 安装时输入带版本号的包名 `@nanmicoder/dsh-agent-teams@0.2.0`。桌面端的 pnpm 11 默认不自动安装发布未满 24 小时的版本：新版发布后的 24 小时内，不带版本号或使用 `@latest` 都会装到上一个版本，即使预览显示的是新版；如果上一个版本与你的宿主不兼容，安装会失败。写明版本号可以立即安装该版本；更换镜像源不会消除这项规则。GitHub 方式需要能够访问 GitHub，默认分支代码可能先于 npm 发布。
@@ -96,16 +96,16 @@ Git 方式直接从仓库安装（默认分支，或固定到某个 tag / 分支
 **桌面端：** 打开「插件 → 添加插件」，粘贴仓库地址（或 `github:` 简写）。在末尾追加 `#<tag|分支|commit>` 可固定版本：
 
 ```text
-https://github.com/NanmiCoder/dsh-agent-teams
-github:NanmiCoder/dsh-agent-teams
-github:NanmiCoder/dsh-agent-teams#v0.2.0
+https://github.com/DreamsTOF/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams#v0.2.0
 ```
 
 **CLI / Web profile：** 用同样的地址安装，然后停止并重启该 profile 的 Harness 进程，再刷新浏览器：
 
 ```sh
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams#v0.2.0   # 固定 tag、分支或 commit
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams#v0.2.0   # 固定 tag、分支或 commit
 ```
 
 默认分支已提交经过验证的 `lib/` 构建产物，安装时不需要 `prepare` 钩子或批准构建脚本。更新时再次执行安装命令（可指定更新的 tag），重启 profile 并刷新。手动克隆源码时，拉取后需运行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再重启 Harness——只更新 Git 不会刷新本地构建产物。
@@ -132,7 +132,7 @@ CLI 管理的安装可将 `web` 换成实际使用的 CLI profile。**安装后�
 也可以从 GitHub 默认分支安装或更新，无需追加 tag 或 commit：
 
 ```sh
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
 ```
 
 更新时把命令里的版本号换成新版本再运行，然后重启对应 profile；已有安装只重复裸包名时，包管理器可能保留旧的精确版本。不带版本号或使用 `@latest` 时，新版发布后的 24 小时内会装到上一个版本。镜像源尚未同步新发布时，可在 npm 命令后追加 `--registry=https://registry.npmjs.org`。GitHub 默认分支的代码可能先于 npm `latest` 发布；默认分支包含已验证的 `lib/` 构建产物。仓库随代码分发服务端、客户端和类型产物，安装时不需要执行 `prepare` 或批准构建脚本。源码维护者每次修改源码后，都需运行 `pnpm build` 并更新已提交的产物。已经发布的 npm 产物保持不变。
@@ -235,7 +235,7 @@ dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
 另提供开放 Agent Skills 包 [`dsh-plugin-development`](./skills/dsh-plugin-development/SKILL.md)：
 
 ```sh
-npx skills add NanmiCoder/dsh-agent-teams --skill dsh-plugin-development
+npx skills add DreamsTOF/dsh-agent-teams --skill dsh-plugin-development
 ```
 
 ## 文档

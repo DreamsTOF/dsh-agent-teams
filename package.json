@@ -41,13 +41,13 @@
     "email": "relakkes@gmail.com",
     "url": "https://github.com/NanmiCoder"
   },
-  "homepage": "https://github.com/NanmiCoder/dsh-agent-teams#readme",
+  "homepage": "https://github.com/DreamsTOF/dsh-agent-teams#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NanmiCoder/dsh-agent-teams.git"
+    "url": "git+https://github.com/DreamsTOF/dsh-agent-teams.git"
   },
   "bugs": {
-    "url": "https://github.com/NanmiCoder/dsh-agent-teams/issues"
+    "url": "https://github.com/DreamsTOF/dsh-agent-teams/issues"
   },
   "keywords": [
     "dsh",

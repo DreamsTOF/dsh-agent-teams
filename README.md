@@ -36,7 +36,7 @@ Ask in natural language. The plugin provides the team protocol, 15 coordination 
 
 ## Releases
 
-[Latest release](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) adds member runtime model switching, Markdown member definitions with tool/skill/MCP filtering, per-member task/token quotas with handover, and exact fork team identity. It targets Harness `0.2.2-rc.1`. See the [tested matrix](./compatibility.json) and [release notes](./release-notes/v0.2.0.md).
+[Latest release](https://github.com/DreamsTOF/dsh-agent-teams/releases/latest) adds member runtime model switching, Markdown member definitions with tool/skill/MCP filtering, per-member task/token quotas with handover, and exact fork team identity. It targets Harness `0.2.2-rc.1`. See the [tested matrix](./compatibility.json) and [release notes](./release-notes/v0.2.0.md).
 
 ## Why AgentTeams?
 
@@ -75,13 +75,13 @@ CI verifies the exact hosts listed above the last row. The installer accepts oth
 In the app sidebar, open **Plugins → Add plugin**. You can install directly from GitHub by pasting this repository URL into the plugin input, without a version, tag, or commit suffix:
 
 ```text
-https://github.com/NanmiCoder/dsh-agent-teams
+https://github.com/DreamsTOF/dsh-agent-teams
 ```
 
 This installs from the default branch and is available immediately after release. The equivalent shorthand is also supported:
 
 ```text
-github:NanmiCoder/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams
 ```
 
 For npm installation, enter the versioned spec `@nanmicoder/dsh-agent-teams@0.2.0`. Desktop's pnpm 11 defaults to a 24-hour minimum release age: for 24 hours after a release, a bare package name or `@latest` installs the previous version even when the preview shows the newest one, and the installation fails if that version is incompatible with your host. An exact version installs immediately. Changing registry mirrors does not remove this policy. GitHub access is required for the Git route; it may contain newer code than npm.
@@ -97,16 +97,16 @@ The Git route installs straight from the repository (the default branch, or a pi
 **Desktop app:** open **Plugins → Add plugin** and paste the repository URL (or the `github:` shorthand). Append `#<tag|branch|commit>` to pin a revision:
 
 ```text
-https://github.com/NanmiCoder/dsh-agent-teams
-github:NanmiCoder/dsh-agent-teams
-github:NanmiCoder/dsh-agent-teams#v0.2.0
+https://github.com/DreamsTOF/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams
+github:DreamsTOF/dsh-agent-teams#v0.2.0
 ```
 
 **CLI / Web profile:** install with the same spec, then stop and restart that profile's Harness process and refresh the browser:
 
 ```sh
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams#v0.2.0   # pin a tag, branch, or commit
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams#v0.2.0   # pin a tag, branch, or commit
 ```
 
 The default branch commits the verified `lib/` build outputs, so installation needs no `prepare` hook or build-script approval. To update, run the install command again (optionally with a newer tag), restart the profile, and refresh. For a manually cloned checkout, run `pnpm install --frozen-lockfile` and `pnpm build` after pulling, then restart the Harness process — updating Git alone does not refresh local build output.
@@ -133,7 +133,7 @@ For a CLI-managed installation, replace `web` with your active CLI profile. **St
 Alternatively, install or update from the latest GitHub default branch without a tag or commit suffix:
 
 ```sh
-dsh plugin --profile web add github:NanmiCoder/dsh-agent-teams
+dsh plugin --profile web add github:DreamsTOF/dsh-agent-teams
 ```
 
 To update, run the command again with the new version, then restart the profile; a bare package name can retain an already installed exact version. For 24 hours after a release, a bare package name or `@latest` installs the previous version. If a registry mirror has not synced the release, append `--registry=https://registry.npmjs.org` to the npm command. GitHub default-branch code may be newer than npm `latest`. The default branch includes the verified server, client, and type build outputs in `lib/`. The repository distributes these outputs so installation does not need a `prepare` hook or build-script approval. Source maintainers must run `pnpm build` and update the committed outputs whenever the source changes. Existing npm releases remain immutable.
@@ -245,7 +245,7 @@ Community upgrade, audit, benchmark, testing and release skills are vendored wit
 The repository also ships the open Agent Skills package [`dsh-plugin-development`](./skills/dsh-plugin-development/SKILL.md):
 
 ```sh
-npx skills add NanmiCoder/dsh-agent-teams --skill dsh-plugin-development
+npx skills add DreamsTOF/dsh-agent-teams --skill dsh-plugin-development
 ```
 
 ## Documentation

@@ -101,7 +101,7 @@ export function inspectInstallation(hostRoot, profileRoot, support = policy) {
     limits: [
       'Checks files resolved from the supplied roots; does not identify the running process or prove plugin behavior.',
       ...(sourceCandidate ? [`Host ${host.version} is pre-adapted against source ${sourceCandidate.commit}; this inspection does not verify that the installed release matches that source.`] : []),
-      ...(!tested && !sourceCandidate && installable ? [`Host ${host.version} is allowed but not in this release's tested matrix; report failures at https://github.com/NanmiCoder/dsh-agent-teams/issues.`] : []),
+      ...(!tested && !sourceCandidate && installable ? [`Host ${host.version} is allowed but not in this release's tested matrix; report failures at https://github.com/DreamsTOF/dsh-agent-teams/issues.`] : []),
     ],
   }
 }
