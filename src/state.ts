@@ -834,7 +834,9 @@ function isTeamMember(value: unknown): value is TeamMember {
     && (value['toolFilter'] === undefined || isMemberToolFilter(value['toolFilter']))
     && (value['runtimeSetup'] === undefined || (isRecord(value['runtimeSetup'])
       && typeof value['runtimeSetup']['persona'] === 'string'
-      && isMemberToolFilter(value['runtimeSetup']['toolFilter'])))
+      && isMemberToolFilter(value['runtimeSetup']['toolFilter'])
+      && isOptionalStringList(value['runtimeSetup']['allowedSkills'])
+      && isOptionalStringList(value['runtimeSetup']['allowedMcpServers'])))
     && isFiniteNumber(value['joinedAt'])
     && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'exhausted' || value['status'] === 'removed')
 }

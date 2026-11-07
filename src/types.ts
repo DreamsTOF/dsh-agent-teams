@@ -317,7 +317,7 @@ export interface TeamMember {
    */
   toolFilter?: MemberToolFilter
   /** Exact child-scoped setup restored on hosts with managed activations. */
-  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter; allowedSkills?: string[] }
+  runtimeSetup?: { persona: string; toolFilter: MemberToolFilter; allowedSkills?: string[]; allowedMcpServers?: string[] }
   joinedAt: number
   status: MemberStatus
   /** Execution admission is closed while a failed/pending handoff is drained. */

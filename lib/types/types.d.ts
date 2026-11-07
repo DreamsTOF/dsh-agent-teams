@@ -279,6 +279,7 @@ export interface TeamMember {
         persona: string;
         toolFilter: MemberToolFilter;
         allowedSkills?: string[];
+        allowedMcpServers?: string[];
     };
     joinedAt: number;
     status: MemberStatus;

@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { agentTeamsSource, observedSessionFormatVersion, outputLimitTurn, type SessionFormatBearer, guardSubagentCreation, startMember, usesManagedActivations, guardSubagentDelivery, installContinuableMemberSetup, memberToolFilter, queueMemberPrompt, restrictableToolNames, startMemberWithLenientFilter, steerMemberPrompt, sessionOwnEvents } from './harness-compat.ts'
 import { installMemberSkillFilter } from './member-skills.ts'
+import { installMemberMcpInstructionsFilter } from './member-mcp.ts'
 import { markMailboxDelivered, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { mailboxPrompt } from './mailbox.ts'
 import { nearestLiveLead } from './lineage.ts'
@@ -707,6 +708,16 @@ export function installMemberSelectionRuntime(
         throw error
       }
     }
+    let disposeMcp = (): void => undefined
+    if (setup?.allowedMcpServers !== undefined) {
+      try {
+        disposeMcp = installMemberMcpInstructionsFilter(childCtx, child, setup.allowedMcpServers)
+      } catch (error) {
+        disposeSkills()
+        disposeAdmission()
+        throw error
+      }
+    }
     let disposeSetup = (): void => undefined
     if (usesManagedActivations(ctx.subagents) && setup !== undefined) {
       try {
@@ -721,7 +732,7 @@ export function installMemberSelectionRuntime(
         } catch (error) { stopFilter(); throw error }
       } catch (error) { disposeAdmission(); throw error }
     }
-    const cleanupAdmission = (): void => { disposeSkills(); disposeSetup(); disposeAdmission() }
+    const cleanupAdmission = (): void => { disposeMcp(); disposeSkills(); disposeSetup(); disposeAdmission() }
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)
@@ -1057,6 +1068,7 @@ export async function spawnMember(
         persona: memberPersona(team, member, stateDir, config.executionPrompt),
         toolFilter,
         ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+        ...member.mcpServers === undefined ? {} : { allowedMcpServers: [...member.mcpServers] },
       }
       return selections.withPending(captain.id, label, llmSelection, () => startMember(ctx.subagents, {
         provider: config.provider,
@@ -1103,6 +1115,7 @@ export async function spawnMember(
       persona: memberPersona(team, member, stateDir, config.executionPrompt),
       toolFilter: acceptedFilter,
       ...member.allowedSkills === undefined ? {} : { allowedSkills: [...member.allowedSkills] },
+      ...member.mcpServers === undefined ? {} : { allowedMcpServers: [...member.mcpServers] },
     }
   }
   // Only a policy member carries a persisted filter snapshot; a member without
