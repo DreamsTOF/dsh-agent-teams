@@ -49,8 +49,7 @@
 | 工具 | 作用 |
 |---|---|
 | `agent_teams_create` | 创建团队，调用者成为队长（一个队长同时只带一个团队） |
-| `agent_teams_add_member` | 拉成员入队（spawn 可续聊子代理 + 成员 persona） |
-| `agent_teams_remove_member` | 安全移除成员：撤销 attempt、回收其未完成任务、等待中断收敛后重新调度 |
+| `agent_teams_add_member` | action=add（默认）拉成员入队（spawn 可续聊子代理 + 成员 persona）；action=remove 安全移除成员（撤销 attempt、回收未完成任务、中断收敛后重调度） |
 | `agent_teams_create_task` | 创建任务，支持合同字段、`dependencies`、`assignee`；halted 时默认拒绝，除非显式 `resume` |
 | `agent_teams_reassign_task` | 原子重试/转派任务；`assignee=captain` 表示队长安全接管 |
 | `agent_teams_claim_task` | 领取任务（校验依赖；队长可代领，成员只能领自己的/未指派的） |

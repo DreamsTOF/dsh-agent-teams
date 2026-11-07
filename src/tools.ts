@@ -73,7 +73,7 @@ import { readArtifactScope, snapshotWorkspacePaths, workspacePathExists } from '
 import { agentTeamsSource, observedSessionFormatVersion, restrictableToolNames } from './harness-compat.ts'
 import { dedupeToolNames, memberSpawnRelaxableDeny, optionalToolPolicy, requireToolPolicy, resolveMemberToolFilter, type MemberToolFilter, type MemberToolPolicy } from './tool-policies.ts'
 import { buildHandoverPrompt, evaluateQuota, handoverPath, markHandoverWritten, memberTokenUsage, quotaWarningReason, type SessionTokenUsageSource } from './member-quota.ts'
-import { mcpServerOfToolName, mountedMcpServerNames, resolveDefinition, resolveMemberToolAllow, scanMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
+import { mcpServerOfToolName, mountedMcpServerNames, resolveDefinition, resolveMemberToolAllow, scanMemberDefinitions, summarizeMemberDefinitions, type MemberDefinition, type ResolvedMemberDefinition } from './member-definitions.ts'
 import type { ContractAmendmentInput } from './state.ts'
 import type { AcceptanceResult, ArtifactDigest, ArtifactSnapshot, CommandResult, ReviewFinding, ReviewVerdict, TaskKind } from './types.ts'
 import {
@@ -1396,9 +1396,10 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
 
   ctx.tools.register(defineTool({
     name: 'agent_teams_add_member',
-    description: 'Add a member to the team roster. Planning and idle roster rows do not call a model. After approval, the member session starts with its first ready task or explicit message and remains durable for later work.',
+    description: 'Add or remove a team member. action="add" (default) adds a member; planning and idle roster rows do not call a model, and after approval the member session starts with its first ready task or explicit message and stays durable. action="remove" safely removes the member named by `name` (revokes its attempts, requeues its unfinished tasks, interrupts its live turn, marks it removed) and ignores the add-only fields.',
     parameters: {
       name: { type: 'string', required: true, description: 'Unique member name inside the team.' },
+      action: { type: 'string', enum: ['add', 'remove'], description: 'add (default) adds a member; remove removes the member named by `name` and ignores the other add-only fields.' },
       agent: { type: 'string', description: 'Optional member definition name discovered from .agents/agents directories. Selects the definition persona, tools, skills, MCP and quota; explicit fields below override it. Use agent_teams_list_member_definitions to discover names.' },
       role: { type: 'string', description: 'Role of the member (e.g. researcher, engineer, reviewer).' },
       provider: { type: 'string', description: 'Optional LLM provider route. Use only when the user explicitly requests a different provider; requires model. Omit to use the configured member route (memberLlmProvider/memberModel) or the captain\'s current route.' },
@@ -1410,31 +1411,63 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
     output: {
       schema: {
         type: 'object',
-        additionalProperties: false,
+        additionalProperties: true,
         properties: {
           member_name: { type: 'string', required: true },
-          member_id: { type: 'string', required: true },
-          provider: { type: 'string', required: true },
-          model: { type: 'string', required: true },
+          member_id: { type: 'string' },
+          provider: { type: 'string' },
+          model: { type: 'string' },
           reasoning_effort: { type: 'string' },
           tool_policy: { type: 'string' },
           status: { type: 'string', required: true },
-          phase: { type: 'string', required: true },
+          phase: { type: 'string' },
+          requeued_tasks: { type: 'array', items: { type: 'string' } },
         },
       },
-      render: (args, value) => [{
-        type: 'text',
-        text: (value.phase === 'staged'
-          ? `Member "${value.member_name}" added to the staged roster (${value.provider}/${value.model}); no child was spawned.`
-          : `Member "${value.member_name}" added (session ${value.member_id || 'starts with first ready task'}, ${value.provider}/${value.model}${value.reasoning_effort === undefined ? '' : `, reasoning ${value.reasoning_effort}`}, status ${value.status}).`)
-          + (value.tool_policy === undefined ? '' : ` Tool policy "${value.tool_policy}" applies to this member.`),
-      }],
+      render: (args, value) => {
+        if (Array.isArray(value.requeued_tasks)) {
+          return [{ type: 'text', text: `Member "${value.member_name}" removed (status ${value.status}); requeued tasks: ${value.requeued_tasks.join(', ') || 'none'}.` }]
+        }
+        return [{
+          type: 'text',
+          text: (value.phase === 'staged'
+            ? `Member "${value.member_name}" added to the staged roster (${value.provider}/${value.model}); no child was spawned.`
+            : `Member "${value.member_name}" added (session ${value.member_id || 'starts with first ready task'}, ${value.provider}/${value.model}${value.reasoning_effort === undefined ? '' : `, reasoning ${value.reasoning_effort}`}, status ${value.status}).`)
+            + (value.tool_policy === undefined ? '' : ` Tool policy "${value.tool_policy}" applies to this member.`),
+        }]
+      },
     },
     async execute(args, exec) {
       const captain = requireCaptain(exec)
       const workspace = workspaceOf(captain)
       const stateRoot = stateRootOf(workspace, config)
       const team = await requireCaptainTeam(ctx, workspace, config, captain)
+      if ((args.action ?? 'add') === 'remove') {
+        const removeName = args.name.trim()
+        const revoked = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
+          const fresh = await requireFreshCaptainTeam(ctx, stateRoot, team.id, captain.id)
+          const member = fresh.members.find(item => item.name === removeName)
+          if (member === undefined) throw new Error(`no member "${removeName}" in team "${fresh.name}"`)
+          const requeued: string[] = []
+          for (const task of fresh.tasks) {
+            if (task.assignee !== member.name || task.status === 'completed') continue
+            invalidateTaskAttempt(task)
+            task.reassigning = false
+            requeued.push(task.id)
+          }
+          member.status = 'removed'
+          await discardMailboxMessages(stateRoot, fresh.id, member.name, (await readUnreadMailbox(stateRoot, fresh.id, member.name)).map(message => message.id))
+          await writeTeam(stateRoot, fresh)
+          appendTeamEvent(ctx, captainSessionOf(ctx, fresh.captainSessionId, captain.session), 'agent-teams/member-removed', { teamId: fresh.id, memberId: member.id })
+          return { member: { ...member }, requeued }
+        })
+        if (revoked.member.id !== '') {
+          await recordRetiredMemberIds(stateRoot, [revoked.member.id])
+          await stopTeamMemberActivations(ctx, await memberOperationParent(ctx, team, captain), [revoked.member], exec.signal)
+        }
+        await scheduler.kickTeam(workspace, team.id, await liveLeadAnchorAgent(ctx, team, captain))
+        return { member_name: revoked.member.name, status: revoked.member.status, requeued_tasks: revoked.requeued }
+      }
       const created = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
         const fresh = await requireFreshCaptainTeam(ctx, stateRoot, team.id, captain.id)
         const memberName = args.name.trim()
@@ -1599,17 +1632,17 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
 
   ctx.tools.register(defineTool({
     name: 'agent_teams_list_member_definitions',
-    description: 'Read-only: list Markdown member definitions from <workspace>/.agents/agents, ~/.dsh/agents and ~/.agents/agents (highest priority wins). Returns each definition\'s resolved tools/skills/MCP allowlists, model route, quota and diagnostics. Use before agent_teams_add_member({agent}).',
+    description: 'Read-only: list Markdown member definitions from <workspace>/.agents/agents, ~/.dsh/agents and ~/.agents/agents (highest priority wins). Returns each definition\'s name and short description only. Use the name in agent_teams_add_member({agent}).',
     parameters: {},
     output: {
       schema: { type: 'object', additionalProperties: true, properties: {} },
       render: (_args, value) => {
-        const definitions = (value as unknown as { definitions?: Array<{ name: string; description?: string; source?: string }> }).definitions ?? []
+        const definitions = (value as unknown as { definitions?: Array<{ name: string; description?: string }> }).definitions ?? []
         return [{
           type: 'text',
           text: definitions.length === 0
             ? 'No member definitions found.'
-            : `Member definitions (${definitions.length}):\n${definitions.map(item => `- ${item.name} [${item.source ?? '?'}]${item.description === undefined || item.description === '' ? '' : `: ${item.description}`}`).join('\n')}`,
+            : `Member definitions (${definitions.length}):\n${definitions.map(item => `- ${item.name}${item.description === undefined || item.description === '' ? '' : `: ${item.description}`}`).join('\n')}`,
         }]
       },
     },
@@ -1617,105 +1650,11 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       const captain = requireCaptain(exec)
       const workspace = workspaceOf(captain)
       const scan = await scanMemberDefinitions(workspace)
-      const known = restrictableToolNames(captain)
-      const visibleTools = known === undefined ? [] : [...known]
-      const definitions = scan.definitions.map((definition) => {
-        const resolved = resolveDefinition(definition, visibleTools)
-        return {
-          name: resolved.name,
-          description: resolved.description,
-          source: resolved.source,
-          path: resolved.path,
-          enabled: resolved.enabled,
-          model: definition.model,
-          provider: resolved.provider ?? '',
-          reasoning_effort: resolved.reasoningEffort ?? '',
-          model_source: definition.model === 'inherit' ? 'inherit' : 'definition',
-          tools: {
-            requested: resolved.tools.requested ?? [],
-            resolved: resolved.tools.resolved,
-            unmatched: resolved.tools.unmatched,
-            inherits: resolved.tools.inherits,
-          },
-          skills: {
-            requested: resolved.skills.requested ?? [],
-            resolved: resolved.skills.resolved,
-            unmatched: resolved.skills.unmatched,
-            inherits: resolved.skills.inherits,
-          },
-          mcp_servers: {
-            requested: resolved.mcpServers.requested ?? [],
-            resolved: resolved.mcpServers.resolved,
-            unmatched: resolved.mcpServers.unmatched,
-            inherits: resolved.mcpServers.inherits,
-          },
-          max_tasks: resolved.maxTasks,
-          max_context_tokens: resolved.maxContextTokens,
-          diagnostics: resolved.diagnostics,
-        }
-      })
-      return { definitions, diagnostics: scan.diagnostics } as unknown as Record<string, JsonValue>
+      const definitions = summarizeMemberDefinitions(scan.definitions)
+      return { definitions } as unknown as Record<string, JsonValue>
     },
   }))
 
-  ctx.tools.register(defineTool({
-    name: 'agent_teams_remove_member',
-    description: 'Remove a member safely: revoke its current attempts, return all unfinished owned tasks to the shared pending pool, interrupt its live turn, and mark it removed.',
-    parameters: {
-      name: { type: 'string', required: true, description: 'Name of the member to remove.' },
-    },
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          member_name: { type: 'string', required: true },
-          status: { type: 'string', required: true },
-          requeued_tasks: { type: 'array', items: { type: 'string' }, required: true },
-        },
-      },
-      render: (args, value) => [{
-        type: 'text',
-        text: `Member "${value.member_name}" removed (status ${value.status}); requeued tasks: ${value.requeued_tasks.join(', ') || 'none'}.`,
-      }],
-    },
-    async execute(args, exec) {
-      const captain = requireCaptain(exec)
-      const workspace = workspaceOf(captain)
-      const stateRoot = stateRootOf(workspace, config)
-      const team = await requireCaptainTeam(ctx, workspace, config, captain)
-      const revoked = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
-        const fresh = await requireFreshCaptainTeam(ctx, stateRoot, team.id, captain.id)
-        const member = fresh.members.find(item => item.name === args.name)
-        if (member === undefined) throw new Error(`no member \"${args.name}\" in team \"${fresh.name}\"`)
-        const requeued: string[] = []
-        for (const task of fresh.tasks) {
-          if (task.assignee !== member.name || task.status === 'completed') continue
-          invalidateTaskAttempt(task)
-          task.reassigning = false
-          requeued.push(task.id)
-        }
-        member.status = 'removed'
-        await discardMailboxMessages(stateRoot, fresh.id, member.name, (await readUnreadMailbox(stateRoot, fresh.id, member.name)).map(message => message.id))
-        await writeTeam(stateRoot, fresh)
-        appendTeamEvent(ctx, captainSessionOf(ctx, fresh.captainSessionId, captain.session), 'agent-teams/member-removed', {
-          teamId: fresh.id,
-          memberId: member.id,
-        })
-        return { member: { ...member }, requeued }
-      })
-      if (revoked.member.id !== '') {
-        await recordRetiredMemberIds(stateRoot, [revoked.member.id])
-        await stopTeamMemberActivations(ctx, await memberOperationParent(ctx, team, captain), [revoked.member], exec.signal)
-      }
-      await scheduler.kickTeam(workspace, team.id, await liveLeadAnchorAgent(ctx, team, captain))
-      return {
-        member_name: revoked.member.name,
-        status: revoked.member.status,
-        requeued_tasks: revoked.requeued,
-      }
-    },
-  }))
 
   ctx.tools.register(defineTool({
     name: 'agent_teams_create_task',

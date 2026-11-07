@@ -347,7 +347,7 @@ try {
     call('agent_teams_reassign_task', {
       task_id: 't1', assignee: 'captain', reason: 'alpha injected hang',
     }),
-    call('agent_teams_remove_member', { name: 'beta' }),
+    call('agent_teams_add_member', { action: 'remove', name: 'beta' }),
   ])
   check('captain takeover and member removal serialize without losing either mutation',
     takeover.attempt === 2 && takeover.assignee === 'captain'

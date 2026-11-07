@@ -677,3 +677,19 @@ export function resolveMemberToolAllow(options: {
 
   return { allow: dedupeNames([...base, ...mcpTools]), restricted: true }
 }
+
+/** Captain-facing view of a member definition: just the name and a one-line description. */
+export interface MemberDefinitionSummary {
+  readonly name: string
+  readonly description: string
+}
+
+/** Reduce raw definitions to the captain-facing summary (name + trimmed description). */
+export function summarizeMemberDefinitions(
+  definitions: readonly { readonly name: string; readonly description?: string }[],
+): MemberDefinitionSummary[] {
+  return definitions.map((definition) => ({
+    name: definition.name,
+    description: (definition.description ?? '').trim(),
+  }))
+}

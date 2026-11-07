@@ -1168,7 +1168,7 @@ try {
   await call('agent_teams_update_task', { task_id: t5.task_id, status: 'in_progress' })
   await call('agent_teams_update_task', { task_id: t5.task_id, status: 'completed', output: 'closed' })
 
-  await call('agent_teams_remove_member', { name: 'alpha' })
+  await call('agent_teams_add_member', { action: 'remove', name: 'alpha' })
   const afterRemoval = await state()
   const recovered = afterRemoval?.tasks.find(candidate => candidate.id === t4.task_id)
   check('removing a member revokes and redispatches its unfinished task',

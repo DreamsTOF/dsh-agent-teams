@@ -162,3 +162,13 @@ export declare function resolveMemberToolAllow(options: {
     allow: string[] | undefined;
     restricted: boolean;
 };
+/** Captain-facing view of a member definition: just the name and a one-line description. */
+export interface MemberDefinitionSummary {
+    readonly name: string;
+    readonly description: string;
+}
+/** Reduce raw definitions to the captain-facing summary (name + trimmed description). */
+export declare function summarizeMemberDefinitions(definitions: readonly {
+    readonly name: string;
+    readonly description?: string;
+}[]): MemberDefinitionSummary[];

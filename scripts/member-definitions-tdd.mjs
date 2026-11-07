@@ -261,3 +261,15 @@ test('the built-in handoff provider exposes a fixed-section template', async () 
   }
   assert.equal(skill.content, body)
 })
+
+test('summarizeMemberDefinitions keeps only name and trimmed description', async () => {
+  const { summarizeMemberDefinitions } = await import('../src/member-definitions.ts')
+  const out = summarizeMemberDefinitions([{ name: 'a', description: '  hi  ' }, { name: 'b' }])
+  assert.deepEqual(out, [{ name: 'a', description: 'hi' }, { name: 'b', description: '' }])
+})
+
+test('remove_member is merged into add_member, not a standalone business tool', async () => {
+  const { TEAM_TOOL_NAMES } = await import('../src/tool-names.ts')
+  assert.ok(TEAM_TOOL_NAMES.includes('agent_teams_add_member'))
+  assert.ok(!TEAM_TOOL_NAMES.includes('agent_teams_remove_member'))
+})

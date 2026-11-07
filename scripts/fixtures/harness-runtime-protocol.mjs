@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createUserMessage, LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm';
 
-const businessNames = ['agent_teams_create', 'agent_teams_approve', 'agent_teams_edit_plan', 'agent_teams_add_member', 'agent_teams_remove_member', 'agent_teams_create_task', 'agent_teams_reassign_task', 'agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status', 'agent_teams_resume', 'agent_teams_delete'];
+const businessNames = ['agent_teams_create', 'agent_teams_approve', 'agent_teams_edit_plan', 'agent_teams_add_member', 'agent_teams_create_task', 'agent_teams_reassign_task', 'agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status', 'agent_teams_resume', 'agent_teams_delete'];
 const goal = 'Use AgentTeams to prepare a plan, then wait for my approval.';
 const cases = new Map(), requests = [];
 const model = { provider: 'runtime-lab', id: 'fixture-model', name: 'Protocol compatibility fixture', context: { contextWindow: 262144 }, defaultMaxTokens: 8192, reasoning: { efforts: [{ id: 'low', name: 'low' }], defaultEffort: 'low' } };
