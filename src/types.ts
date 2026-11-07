@@ -256,7 +256,7 @@ export interface TeamTask {
 }
 
 /** Member lifecycle status. */
-export type MemberStatus = 'idle' | 'working' | 'removed'
+export type MemberStatus = 'idle' | 'working' | 'exhausted' | 'removed'
 
 /** One team member: a continuable subagent plus its team-side record. */
 export interface TeamMember {
@@ -266,12 +266,24 @@ export interface TeamMember {
   name: string
   /** Role description, e.g. `researcher`, `engineer`, `reviewer`. */
   role?: string
+  /** Member definition name this member was created from, when any. */
+  definitionName?: string
+  /** Source path of the member definition file this member was created from, when any. */
+  sourcePath?: string
+  /** Content hash of the member definition snapshot written at creation, when any. */
+  contentHash?: string
   /** Resolved LLM provider route captured when this member was created. */
   provider?: string
   /** Resolved model captured when this member was created. */
   model?: string
   /** Resolved reasoning effort captured from the captain or target model default. */
   reasoningEffort?: string
+  /** Provider route snapshot captured at first spawn (the immutable descriptor route). */
+  spawnProvider?: string
+  /** Model snapshot captured at first spawn (the immutable descriptor route). */
+  spawnModel?: string
+  /** Reasoning-effort snapshot captured at first spawn (the immutable descriptor route). */
+  spawnReasoningEffort?: string
   /** Prompt specific to this member's execution turns. */
   executionPrompt?: string
   /** Configured second-choice route. */
@@ -281,6 +293,10 @@ export interface TeamMember {
   activeModel?: string
   /** Whether the fallback route is currently active. */
   fallbackActive?: boolean
+  /** Completed-task quota for this member; absent or `0` means unlimited. */
+  maxTasks?: number
+  /** Cumulative token budget for this member; absent or `0` means unlimited. */
+  maxContextTokens?: number
   /**
    * Owner-declared tool-policy id this member selected (`#59`), absent for a
    * member without a policy (the unchanged default behavior). The Captain
@@ -300,6 +316,8 @@ export interface TeamMember {
   status: MemberStatus
   /** Execution admission is closed while a failed/pending handoff is drained. */
   stopping?: boolean
+  /** A quota-triggered handover was requested but has not completed yet. */
+  handoverPending?: boolean
   /**
    * Last member-start failure, recorded so the captain can see why a member
    * never acquired a session instead of observing an unexplained `unspawned`
@@ -395,4 +413,8 @@ export interface TeamState {
   reviewPolicy?: ReviewPolicy
   /** Set when an automatic review/repair loop hits its configured ceiling. */
   escalated?: boolean
+  /** Default completed-task quota for new members; absent means unlimited (legacy teams). */
+  memberMaxTasks?: number
+  /** Default cumulative token budget for new members; absent means unlimited (legacy teams). */
+  memberMaxContextTokens?: number
 }

@@ -808,7 +808,7 @@ export function installMemberSelectionRuntime(
     const model = (child as Agent & { model?: { select(selection: Readonly<ModelSelection>): void } }).model
     const nativeModel = typeof model?.select === 'function' ? model : undefined
     nativeModel?.select(selectionRef.current)
-    const disposeSelection = installModelSelection(childCtx, selectionRef)
+    const disposeSelection = installModelSelection(childCtx)
     const fallback = selection.fallback
     let switched = false
     const recoveryLifetime = new AbortController()

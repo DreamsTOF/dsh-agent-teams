@@ -54,7 +54,7 @@ const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
 const WORKSPACE_KEYS = ['workspaceRegistry', 'workspace'] as const
 
 export const name = 'agent-teams'
-export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents']
+export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents', 'skills', 'sessionProjections']
 
 /** Plugin configuration. */
 export interface Config {
@@ -89,6 +89,10 @@ export interface Config {
   memberMaxDepth?: number
   /** Team size cap in members (default `8`). */
   maxMembers?: number
+  /** Default completed-task quota for new members (default `5`; `0` means unlimited). */
+  memberMaxTasks?: number
+  /** Default cumulative token budget for new members (default `200000000`; `0` means unlimited). */
+  memberMaxContextTokens?: number
   /** Named multi-role team profiles. */
   profiles?: Record<string, TeamProfileConfig>
   /**
@@ -171,6 +175,8 @@ export const Config: z<Config> = z.object({
   toolPolicies: z.dict(toolPolicyConfig).default({}),
   memberMaxDepth: z.natural().default(0),
   maxMembers: z.natural().min(1).default(8),
+  memberMaxTasks: z.natural().default(5),
+  memberMaxContextTokens: z.natural().default(200000000),
   promptSectionOrder: z.natural().default(117),
   slashCommand: z.boolean().default(true),
 })

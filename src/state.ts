@@ -787,6 +787,11 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+/** Whether a value is an absent or a non-negative safe integer (quota/budget shape). */
+function isOptionalNonNegativeInteger(value: unknown): value is number | undefined {
+  return value === undefined || (Number.isSafeInteger(value) && (value as number) >= 0)
+}
+
 /** Validate one member record at the durable JSON boundary. */
 function isTeamMember(value: unknown): value is TeamMember {
   if (!isRecord(value)) return false
@@ -794,13 +799,22 @@ function isTeamMember(value: unknown): value is TeamMember {
     && typeof value['name'] === 'string'
     && value['name'].trim() !== ''
     && isOptionalString(value['role'])
+    && isOptionalString(value['definitionName'])
+    && isOptionalString(value['sourcePath'])
+    && isOptionalString(value['contentHash'])
     && (value['stopping'] === undefined || typeof value['stopping'] === 'boolean')
+    && (value['handoverPending'] === undefined || typeof value['handoverPending'] === 'boolean')
     && isOptionalString(value['provider'])
     && isOptionalString(value['model'])
     && isOptionalString(value['reasoningEffort'])
+    && isOptionalString(value['spawnProvider'])
+    && isOptionalString(value['spawnModel'])
+    && isOptionalString(value['spawnReasoningEffort'])
     && isOptionalString(value['activeProvider'])
     && isOptionalString(value['activeModel'])
     && isOptionalString(value['spawnError'])
+    && isOptionalNonNegativeInteger(value['maxTasks'])
+    && isOptionalNonNegativeInteger(value['maxContextTokens'])
     && (value['executionPrompt'] === undefined || typeof value['executionPrompt'] === 'string')
     && (value['fallback'] === undefined || (isRecord(value['fallback']) && typeof value['fallback']['provider'] === 'string' && typeof value['fallback']['model'] === 'string'))
     && (value['fallbackActive'] === undefined || typeof value['fallbackActive'] === 'boolean')
@@ -811,7 +825,7 @@ function isTeamMember(value: unknown): value is TeamMember {
       && typeof value['runtimeSetup']['persona'] === 'string'
       && isMemberToolFilter(value['runtimeSetup']['toolFilter'])))
     && isFiniteNumber(value['joinedAt'])
-    && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'removed')
+    && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'exhausted' || value['status'] === 'removed')
 }
 
 /** Validate one task record at the durable JSON boundary. */
@@ -946,6 +960,8 @@ export function describeTeamStateDefect(raw: unknown, expectedId: string): strin
   if (raw['halted'] !== undefined && typeof raw['halted'] !== 'boolean') return 'halted must be a boolean'
   if (raw['reviewPolicy'] !== undefined && !isReviewPolicy(raw['reviewPolicy'])) return 'reviewPolicy is invalid'
   if (raw['escalated'] !== undefined && typeof raw['escalated'] !== 'boolean') return 'escalated must be a boolean'
+  if (!isOptionalNonNegativeInteger(raw['memberMaxTasks'])) return 'memberMaxTasks must be an integer >= 0'
+  if (!isOptionalNonNegativeInteger(raw['memberMaxContextTokens'])) return 'memberMaxContextTokens must be an integer >= 0'
   return 'record does not satisfy the durable team contract'
 }
 
@@ -1102,6 +1118,8 @@ function isTeamState(value: unknown, expectedId: string): value is TeamState {
     && (value['haltedAt'] === undefined || isFiniteNumber(value['haltedAt']))
     && (value['reviewPolicy'] === undefined || isReviewPolicy(value['reviewPolicy']))
     && (value['escalated'] === undefined || typeof value['escalated'] === 'boolean')
+    && isOptionalNonNegativeInteger(value['memberMaxTasks'])
+    && isOptionalNonNegativeInteger(value['memberMaxContextTokens'])
   if (!validShape) return false
 
   const members = value['members'] as TeamMember[]
